@@ -28,6 +28,7 @@ const state = {
   busy: false,
   linkDown: false,
   history: loadHistory(),
+  drops: loadDrops(),
   guard: false,
   ready: null,
   catalogue: null,
@@ -82,6 +83,97 @@ function saveHistory(list) {
   } catch {
     /* quota, history is nice to have */
   }
+}
+
+/* ---------- test log ----------
+   A field test needs numbers, not impressions. Two things are recorded locally: every reported
+   drop (with the uptime it had) and the reported outcome of every install. One copyable report
+   carries both, so a tester can paste it into the channel instead of describing it. */
+
+const DROP_KEY = 'ir.events.v1';
+
+function loadDrops() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(DROP_KEY) || '[]');
+    return Array.isArray(raw) ? raw : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveDrops(list) {
+  state.drops = list.slice(0, 120);
+  try {
+    localStorage.setItem(DROP_KEY, JSON.stringify(state.drops));
+  } catch {
+    /* quota */
+  }
+}
+
+function recordDrop(operatorId) {
+  const last = state.history.find((h) => h.operatorId === operatorId) || state.history[0];
+  if (!last) return;
+  const uptime = Date.now() - last.createdAt;
+  // a double tap or a tap right after a build is not a real drop
+  if (uptime < 60_000) return;
+  saveDrops([
+    { kind: 'drop', at: Date.now(), operatorId: last.operatorId, uptime, ua: navigator.userAgent },
+    ...state.drops
+  ]);
+}
+
+/** the tester's answer right after installing: did the antenna come back or not */
+function recordOutcome(kind) {
+  const last = state.history[0];
+  if (!last) return;
+  saveDrops([
+    {
+      kind,
+      at: Date.now(),
+      operatorId: last.operatorId,
+      format: last.format,
+      ua: navigator.userAgent
+    },
+    ...state.drops
+  ]);
+}
+
+function dropStats() {
+  const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+  const today = state.drops.filter((d) => d.kind === 'drop' && d.at >= dayAgo);
+  const last = state.drops.find((d) => d.kind === 'drop');
+  const avg = today.length ? Math.round(today.reduce((s, d) => s + (d.uptime || 0), 0) / today.length) : 0;
+  const ups = state.drops.filter((d) => d.kind === 'up' && d.at >= dayAgo).length;
+  const fails = state.drops.filter((d) => d.kind === 'fail' && d.at >= dayAgo).length;
+  return { today: today.length, last, avg, ups, fails };
+}
+
+function durationLabel(ms) {
+  const mins = Math.max(0, Math.round(ms / 60_000));
+  if (mins < 60) return `${fa(mins)} دقیقه`;
+  const hours = Math.floor(mins / 60);
+  const rest = mins % 60;
+  if (hours < 24) return rest ? `${fa(hours)} ساعت و ${fa(rest)} دقیقه` : `${fa(hours)} ساعت`;
+  return `${fa(Math.round(hours / 24))} روز`;
+}
+
+function testReport() {
+  const { today, last, avg, ups, fails } = dropStats();
+  const ios = (navigator.userAgent.match(/OS (\d+[_.]\d+(?:[_.]\d+)?)/) || [])[1]?.replace(/_/g, '.') || 'نامشخص';
+  const op = state.history[0]?.operatorId || 'نامشخص';
+  return [
+    'گزارش تست آنتن',
+    `اپراتور: ${op}`,
+    `iOS: ${ios}`,
+    last ? `آخرین عمر پروفایل: ${durationLabel(last.uptime)}` : 'هنوز افتادنی ثبت نشده',
+    `افتادن در ۲۴ ساعت: ${fa(today)}`,
+    `نصب موفق در ۲۴ ساعت: ${fa(ups)}`,
+    `نصب بی‌نتیجه در ۲۴ ساعت: ${fa(fails)}`,
+    avg ? `میانگین عمر: ${durationLabel(avg)}` : null,
+    `گوشی: ${navigator.userAgent.includes('iPhone') ? 'iPhone' : 'سایر'}`
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 /* ---------- guard mode ----------
@@ -379,6 +471,12 @@ function installSheetHtml(entries, format) {
     <p class="muted">قالب: ${esc(format)} ${entries && entries.length ? `· APN: ${esc(entries.join(' , '))}` : ''}</p>
     <p class="muted">اگر بعد از نصب آنتن نیامد، پروفایل را از تنظیمات حذف کنید و یک بار دیگر بسازید؛ هر پروفایل UUID تازه دارد و نصب دوباره، مودم را مجبور می‌کند تنظیمات را از نو بخواند.</p>
     <p class="muted">اگر پیام «پروفایل ناشناس / Unsigned» دیدید، نصب را ادامه دهید؛ پروفایل بدون امضای تجاری هم روی گوشی نصب می‌شود.</p>
+    <div class="divider"></div>
+    <p class="muted">نتیجه چه بود؟ همین حالا ثبت کنید تا تست جمع‌بندی شود.</p>
+    <div class="hist-actions" style="margin-top:8px">
+      <button class="mini-btn accent" data-act="report-up" type="button">آنتن آمد</button>
+      <button class="mini-btn danger" data-act="report-fail" type="button">آنتن نیامد</button>
+    </div>
   `;
 }
 
@@ -748,6 +846,18 @@ function renderGuide() {
       </div>
     </section>
     <section class="block">
+      <h2 class="block-title">وقتی آنتن برنمی‌گردد</h2>
+      <div class="card">
+        <p>اگر پروفایل نصب شد و آنتن اصلاً نیامد، این چهار بررسی را به ترتیب انجام دهید:</p>
+        <ol class="steps" style="margin-top:8px">
+          <li><b>APN اپراتور:</b> اپراتور را دقیق انتخاب کنید. اپراتورهای مجازی مثل شاتل موبایل و آپتل APN خودشان را دارند و APN اشتباه هیچ آنتنی برنمی‌گرداند.</li>
+          <li><b>نوع شبکه:</b> در <bdi dir="ltr">Settings → Cellular → Voice &amp; Data</bdi> روی 3G بگذارید و دوباره امتحان کنید.</li>
+          <li><b>نصب واقعی:</b> در <bdi dir="ltr">VPN &amp; Device Management</bdi> ببینید پروفایل با همان APN نشسته باشد.</li>
+          <li><b>گزارش:</b> در شیت نصب «آنتن نیامد» را بزنید و از تب تاریخچه «کپی گزارش» را بفرستید تا APN درست به فهرست اضافه شود.</li>
+        </ol>
+      </div>
+    </section>
+    <section class="block">
       <h2 class="block-title">نگهبان ابری، بدون هیچ کاری</h2>
       <div class="card">
         <p>اگر می‌خواهید یک ماه حتی همان یک تأیید را هم نزنید، از دکمه‌ی «نگهبان ابری» استفاده کنید. یک‌بار پروفایل ثبت نصب می‌شود و بعد سرور خودش پروفایل سلولی تازه می‌فرستد؛ iOS آن را بدون تأیید نصب می‌کند.</p>
@@ -777,6 +887,28 @@ function renderGuide() {
 
 /* ---------- history ---------- */
 
+/** the field-test summary: what a tester needs to paste into the channel */
+function testBlock() {
+  const { today, last, avg, ups, fails } = dropStats();
+  if (!state.drops.length) {
+    return `<div class="card" style="margin-bottom:12px">
+      <h3>آمار تست</h3>
+      <p class="muted">بعد از نصب، در همان شیت «آنتن آمد» یا «آنتن نیامد» را بزنید. وقتی هم آنتن افتاد، «آنتن پرید؟ پروفایل تازه» را بزنید تا عمر پروفایل ثبت شود.</p>
+    </div>`;
+  }
+  return `<div class="card" style="margin-bottom:12px">
+    <h3>آمار تست</h3>
+    ${last ? `<div class="kv"><span>آخرین عمر پروفایل</span><span>${durationLabel(last.uptime)}</span></div>` : ''}
+    <div class="kv"><span>افتادن در ۲۴ ساعت</span><span>${fa(today)}</span></div>
+    <div class="kv"><span>نصب موفق در ۲۴ ساعت</span><span>${fa(ups)}</span></div>
+    <div class="kv"><span>نصب بی‌نتیجه در ۲۴ ساعت</span><span>${fa(fails)}</span></div>
+    ${avg ? `<div class="kv"><span>میانگین عمر</span><span>${durationLabel(avg)}</span></div>` : ''}
+    <div class="hist-actions" style="margin-top:10px">
+      <button class="mini-btn accent" data-act="copy-report" type="button">کپی گزارش</button>
+    </div>
+  </div>`;
+}
+
 function renderHistory() {
   const scope = STATIC
     ? '<p class="hint">این فهرست فقط در همین مرورگر روی همین دستگاه ذخیره می‌شود؛ نه به سرور می‌رود و نه با کاربر دیگری مشترک است. پاک‌کردن داده‌های سایت هم آن را پاک می‌کند.</p>'
@@ -793,6 +925,7 @@ function renderHistory() {
   }
 
   view.innerHTML =
+    testBlock() +
     state.history
       .map((h) => {
         const op = OPERATORS.find((o) => o.id === h.operatorId);
@@ -931,7 +1064,20 @@ view.addEventListener('click', (event) => {
         () => toast('کپی نشد', true)
       );
     }
+    if (kind === 'copy-report') {
+      navigator.clipboard?.writeText(testReport()).then(
+        () => toast('گزارش کپی شد، در کانال بفرست'),
+        () => toast('کپی نشد؛ متن را از پایین بخوان', true)
+      );
+    }
+    if (kind === 'report-up' || kind === 'report-fail') {
+      recordOutcome(kind === 'report-up' ? 'up' : 'fail');
+      toast(kind === 'report-up' ? 'ثبت شد: آنتن آمد' : 'ثبت شد: آنتن نیامد');
+      return;
+    }
     if (kind === 'rebuild') {
+      // this tap is the user reporting a drop, so it is the measurement point
+      recordDrop(act.dataset.op || state.operatorId);
       state.operatorId = act.dataset.op || state.operatorId;
       state.tab = 'build';
       render();
@@ -1143,5 +1289,5 @@ document.getElementById('statusBtn').addEventListener('click', async () => {
   primeGuard();
 
   // handle for the UI gate and for debugging in the console
-  window.__ir = { state, handleBuild, pingNow, primeGuard };
+  window.__ir = { state, handleBuild, pingNow, primeGuard, recordDrop, recordOutcome, dropStats, testReport };
 })();

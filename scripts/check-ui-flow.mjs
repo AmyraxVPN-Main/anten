@@ -301,6 +301,25 @@ await evaluate(`document.querySelector('[data-tab="history"]').click()`);
 await sleep(400);
 check('history shows the new entry age', (await evaluate(`/همین حالا|دقیقه پیش/.test(document.body.textContent)`)) === true);
 
+/* 9b. test log: a drop and an install outcome become one copyable report */
+{
+  const seeded = await evaluate(`(() => {
+    window.__ir.state.history.unshift({ id: 'seed', operatorId: 'mci', format: 'universal', createdAt: Date.now() - 14 * 60000 });
+    window.__ir.recordDrop('mci');
+    window.__ir.recordOutcome('up');
+    return window.__ir.dropStats();
+  })()`);
+  check('drop is recorded with its uptime', seeded && seeded.today === 1, JSON.stringify(seeded));
+  check('install outcome is recorded', seeded && seeded.ups === 1, JSON.stringify(seeded));
+  const report = await evaluate(`window.__ir.testReport()`);
+  check('report carries operator and uptime', /اپراتور: mci/.test(report) && /۱۴ دقیقه/.test(report), report.split('\n')[3]);
+  await evaluate(`document.querySelector('[data-tab="history"]').click()`);
+  await sleep(350);
+  check('history shows the test summary', (await evaluate(`document.body.textContent.includes('آمار تست')`)) === true);
+  const copyBtn = await evaluate(`(() => { const b = document.querySelector('[data-act="copy-report"]'); return b ? Math.round(b.getBoundingClientRect().height) : 0; })()`);
+  check('report button is a 44px target', copyBtn >= 44, String(copyBtn));
+}
+
 /* 10. guard mode: one switch keeps a ready file in hand */
 await evaluate(`document.querySelector('[data-tab="build"]').click()`);
 await sleep(250);
