@@ -1,0 +1,27 @@
+{
+  "name": "آنتن، iRegister",
+  "short_name": "آنتن",
+  "description": "ساخت پروفایل اختصاصی سلولی آیفون و برگرداندن آنتن بدون درآوردن سیم‌کارت",
+  "lang": "fa",
+  "dir": "rtl",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#070d13",
+  "theme_color": "#070d13",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
