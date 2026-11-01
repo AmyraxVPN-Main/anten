@@ -161,9 +161,11 @@ function testReport() {
   const { today, last, avg, ups, fails } = dropStats();
   const ios = (navigator.userAgent.match(/OS (\d+[_.]\d+(?:[_.]\d+)?)/) || [])[1]?.replace(/_/g, '.') || 'نامشخص';
   const op = state.history[0]?.operatorId || 'نامشخص';
+  const apnList = (state.history[0]?.entries || []).join(' , ');
   return [
     'گزارش تست آنتن',
     `اپراتور: ${op}`,
+    `APN: ${apnList || 'نامشخص'}`,
     `iOS: ${ios}`,
     last ? `آخرین عمر پروفایل: ${durationLabel(last.uptime)}` : 'هنوز افتادنی ثبت نشده',
     `افتادن در ۲۴ ساعت: ${fa(today)}`,
@@ -411,12 +413,15 @@ async function handleBuild(silent = false) {
     if (state.tab === 'build') renderBuild();
   } catch (err) {
     try {
-      const { xml, uuids } = buildLocal(payload);
+      const built = buildLocal(payload);
+      const { xml, uuids } = built;
+      // the APN actually baked into the file: a test report without it cannot be diagnosed
+      const apns = (built.opts?.entries || []).map((e) => e.apn).filter(Boolean);
       if (silent) {
         // no server: hold a blob instead of a download link, the install button uses it as is
         state.ready = {
           url: URL.createObjectURL(new Blob([xml], { type: 'application/x-apple-aspen-config' })),
-          entries: payload.customEntries?.map((e) => e.apn) || [],
+          entries: apns,
           format: payload.format,
           at: Date.now()
         };
@@ -431,15 +436,15 @@ async function handleBuild(silent = false) {
           uuid: uuids.root,
           operatorId: payload.operatorId,
           format: payload.format,
-          entries: [],
+          entries: apns,
           createdAt: Date.now(),
           local: true
         },
         ...state.history
       ]);
       renderBuild();
-      openSheet('پروفایل محلی ساخته شد', installSheetHtml([], payload.format));
-      toast('سرور در دسترس نبود؛ پروفایل بدون ثبت ساخته شد');
+      openSheet('پروفایل ساخته شد', installSheetHtml(apns, payload.format));
+      toast('پروفایل ساخته شد؛ در Settings نصبش کنید');
     } catch (localErr) {
       toast(localErr.message || err.message || 'ساخت پروفایل ناموفق بود', true);
     }
