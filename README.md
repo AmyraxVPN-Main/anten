@@ -164,9 +164,16 @@ node scripts/check-static.mjs     # گیت: بدون هیچ درخواست /api�
 
 گردش کار:
 
-1. یک مخزن بساز و همین پوشه را push کن.
-2. در Settings → Pages، منبع را روی «GitHub Actions» بگذار.
-3. `.github/workflows/pages.yml` خودش `site/` را می‌سازد و منتشر می‌کند.
+1. روی گیت‌هاب یک مخزن خالی بساز (بدون README).
+2. همین پوشه را وصل و push کن:
+
+```bash
+git remote add origin https://github.com/<user>/<repo>.git
+git push -u origin main
+```
+
+3. در Settings → Pages، منبع را روی «GitHub Actions» بگذار.
+4. اکشن `pages` خودش `site/` را می‌سازد و منتشر می‌کند؛ آدرس نهایی می‌شود `https://<user>.github.io/<repo>/`.
 
 نسخه‌ی استاتیک از نسخه‌ی سروری سبک‌تر است و این تفاوت‌ها را دارد: بدون دفترکل و آمار، بدون امضای تجاری (iOS برچسب Unsigned می‌دهد)، بدون قفل یک گوشی، و بدون نگهبان ابری. نگهبان محلی روی همان صفحه هم کار می‌کند، فقط فایل را در حافظه نگه می‌دارد نه روی سرور.
 
