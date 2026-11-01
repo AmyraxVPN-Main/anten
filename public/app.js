@@ -778,20 +778,26 @@ function renderGuide() {
 /* ---------- history ---------- */
 
 function renderHistory() {
+  const scope = STATIC
+    ? '<p class="hint">این فهرست فقط در همین مرورگر روی همین دستگاه ذخیره می‌شود؛ نه به سرور می‌رود و نه با کاربر دیگری مشترک است. پاک‌کردن داده‌های سایت هم آن را پاک می‌کند.</p>'
+    : '';
+
   if (!state.history.length) {
     view.innerHTML = `
       <div class="empty">
         <svg viewBox="0 0 24 24" width="42" height="42"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M12 8v4.4l3 1.8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none"/></svg>
         <div>هنوز پروفایلی نساخته‌اید.</div>
-      </div>`;
+      </div>
+      ${scope}`;
     return;
   }
 
-  view.innerHTML = state.history
-    .map((h) => {
-      const op = OPERATORS.find((o) => o.id === h.operatorId);
-      const date = new Date(h.createdAt).toLocaleString('fa-IR', { dateStyle: 'short', timeStyle: 'short' });
-      return `<div class="hist-item">
+  view.innerHTML =
+    state.history
+      .map((h) => {
+        const op = OPERATORS.find((o) => o.id === h.operatorId);
+        const date = new Date(h.createdAt).toLocaleString('fa-IR', { dateStyle: 'short', timeStyle: 'short' });
+        return `<div class="hist-item">
         <div class="hist-top">
           <span class="hist-title">${esc(op ? op.fa : h.operatorId)} ${h.local ? '<span class="badge off">محلی</span>' : ''}</span>
           <span class="badge on">${esc(h.format || 'universal')}</span>
@@ -805,8 +811,8 @@ function renderHistory() {
           <button class="mini-btn danger" data-act="del-hist" data-id="${esc(h.id)}" type="button">حذف</button>
         </div>
       </div>`;
-    })
-    .join('');
+      })
+      .join('') + scope;
 }
 
 /* ---------- about ---------- */
