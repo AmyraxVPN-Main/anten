@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>ConsentText</key>
+	<dict>
+		<key>default</key>
+		<string>این پروفایل تنظیمات شبکه سلولی را روی دستگاه اعمال می‌کند. فقط روی همان گوشی نصب شود که برای آن ساخته شده است.</string>
+	</dict>
+	<key>PayloadContent</key>
+	<array>
+		<dict>
+			<key>PayloadDisplayName</key>
+			<string>Cellular</string>
+			<key>PayloadIdentifier</key>
+			<string>com.apple.cellular.F8C99C05-0D16-4F84-B09D-52815F30D92F</string>
+			<key>PayloadType</key>
+			<string>com.apple.cellular</string>
+			<key>PayloadUUID</key>
+			<string>f8c99c05-0d16-4f84-b09d-52815f30d92f</string>
+			<key>PayloadVersion</key>
+			<integer>1</integer>
+			<key>APNs</key>
+			<array>
+				<dict>
+					<key>AllowedProtocolMask</key>
+					<integer>3</integer>
+					<key>AllowedProtocolMaskInDomesticRoaming</key>
+					<integer>3</integer>
+					<key>AllowedProtocolMaskInRoaming</key>
+					<integer>3</integer>
+					<key>AuthenticationType</key>
+					<string>PAP</string>
+					<key>Name</key>
+					<string>mcinet</string>
+					<key>EnableXLAT464</key>
+					<false/>
+				</dict>
+			</array>
+		</dict>
+	</array>
+	<key>PayloadDescription</key>
+	<string>آنتن، همراه اول · mcinet</string>
+	<key>PayloadDisplayName</key>
+	<string>آنتن</string>
+	<key>PayloadIdentifier</key>
+	<string>ir.iregister.profile.4B59EA92-FAC5-4C8C-98DD-1B6E4A5EA61B</string>
+	<key>PayloadOrganization</key>
+	<string>AmyraxVPN</string>
+	<key>PayloadRemovalDisallowed</key>
+	<false/>
+	<key>PayloadType</key>
+	<string>Configuration</string>
+	<key>PayloadUUID</key>
+	<string>4b59ea92-fac5-4c8c-98dd-1b6e4a5ea61b</string>
+	<key>PayloadVersion</key>
+	<integer>1</integer>
+</dict>
+</plist>

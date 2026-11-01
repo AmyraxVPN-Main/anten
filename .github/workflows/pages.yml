@@ -24,7 +24,10 @@ jobs:
           node-version: 22
       - name: build the static site
         run: |
+          npm run check
+          npm test
           node scripts/build-site.mjs
+          node scripts/check-static.mjs
           test -f site/index.html
       - uses: actions/upload-pages-artifact@v3
         with:

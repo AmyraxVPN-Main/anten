@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>ConsentText</key>
+	<dict>
+		<key>default</key>
+		<string>این پروفایل تنظیمات شبکه سلولی را روی دستگاه اعمال می‌کند. فقط روی همان گوشی نصب شود که برای آن ساخته شده است.</string>
+	</dict>
+	<key>PayloadContent</key>
+	<array>
+		<dict>
+			<key>PayloadDisplayName</key>
+			<string>Cellular</string>
+			<key>PayloadIdentifier</key>
+			<string>com.apple.cellular.96633BEB-B172-4775-92D2-C73048D32BD7</string>
+			<key>PayloadType</key>
+			<string>com.apple.cellular</string>
+			<key>PayloadUUID</key>
+			<string>96633beb-b172-4775-92d2-c73048d32bd7</string>
+			<key>PayloadVersion</key>
+			<integer>1</integer>
+			<key>APNs</key>
+			<array>
+				<dict>
+					<key>AllowedProtocolMask</key>
+					<integer>3</integer>
+					<key>AllowedProtocolMaskInDomesticRoaming</key>
+					<integer>3</integer>
+					<key>AllowedProtocolMaskInRoaming</key>
+					<integer>3</integer>
+					<key>AuthenticationType</key>
+					<string>PAP</string>
+					<key>Name</key>
+					<string>aptel</string>
+					<key>EnableXLAT464</key>
+					<false/>
+				</dict>
+			</array>
+		</dict>
+	</array>
+	<key>PayloadDescription</key>
+	<string>آنتن، آپتل · aptel</string>
+	<key>PayloadDisplayName</key>
+	<string>آنتن</string>
+	<key>PayloadIdentifier</key>
+	<string>ir.iregister.profile.EE5F1F2F-ADCB-4CC2-BE40-B7E5272C2FFA</string>
+	<key>PayloadOrganization</key>
+	<string>AmyraxVPN</string>
+	<key>PayloadRemovalDisallowed</key>
+	<false/>
+	<key>PayloadType</key>
+	<string>Configuration</string>
+	<key>PayloadUUID</key>
+	<string>ee5f1f2f-adcb-4cc2-be40-b7e5272c2ffa</string>
+	<key>PayloadVersion</key>
+	<integer>1</integer>
+</dict>
+</plist>

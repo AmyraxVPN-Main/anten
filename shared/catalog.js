@@ -28,9 +28,9 @@ export const OPERATORS = [
     id: 'mci',
     fa: 'همراه اول',
     en: 'MCI',
-    entries: [{ apn: 'mcinet', username: 'mcinet', password: 'mcinet' }],
-    auth: 'CHAP',
-    xlat: true,
+    entries: [{ apn: 'mcinet' }],
+    auth: 'PAP',
+    xlat: false,
     source: community()
   },
   {
@@ -39,16 +39,16 @@ export const OPERATORS = [
     en: 'Irancell',
     entries: [{ apn: 'mtnirancell' }],
     auth: 'PAP',
-    xlat: true,
+    xlat: false,
     source: community()
   },
   {
     id: 'rightel',
     fa: 'رایتل',
     en: 'Rightel',
-    entries: [{ apn: 'rightel', username: 'rightel', password: 'rightel' }],
+    entries: [{ apn: 'rightel' }],
     auth: 'PAP',
-    xlat: true,
+    xlat: false,
     source: community()
   },
   {
@@ -57,7 +57,7 @@ export const OPERATORS = [
     en: 'ApTel',
     entries: [{ apn: 'aptel' }],
     auth: 'PAP',
-    xlat: true,
+    xlat: false,
     source: community()
   },
   {
@@ -66,7 +66,7 @@ export const OPERATORS = [
     en: 'Shatel Mobile · 0998',
     entries: [{ apn: 'shatelmobile' }],
     auth: 'PAP',
-    xlat: true,
+    xlat: false,
     source: community()
   },
   {
@@ -75,7 +75,7 @@ export const OPERATORS = [
     en: 'Samantel',
     entries: [{ apn: 'samantel' }],
     auth: 'PAP',
-    xlat: true,
+    xlat: false,
     source: community()
   },
   {
@@ -84,7 +84,7 @@ export const OPERATORS = [
     en: 'MCI + Irancell + Rightel',
     entries: 'union',
     auth: 'PAP',
-    xlat: true,
+    xlat: false,
     source: community()
   },
   {
@@ -93,30 +93,30 @@ export const OPERATORS = [
     en: 'Custom APN',
     entries: [],
     auth: 'PAP',
-    xlat: true,
+    xlat: false,
     source: community()
   }
 ];
 
-/** profile output shapes. universal carries both the legacy APN key and the iOS 16+ APNs array. */
+/** All variants use the documented Cellular payload; legacy omits iOS 16 XLAT. */
 export const FORMATS = [
   {
     id: 'universal',
-    fa: 'همه نسخه‌ها (پیشنهادی)',
+    fa: 'سلولی استاندارد',
     en: 'iOS 9 → 26',
-    desc: 'کلید APN قدیمی + آرایه APNs مدرن در یک پروفایل'
+    desc: 'آرایه APNs استاندارد؛ 464XLAT فقط از iOS 16 پشتیبانی می‌شود'
   },
   {
     id: 'modern',
     fa: 'فقط iOS 16 و بالاتر',
     en: 'iOS 16 → 26',
-    desc: 'آرایه APNs (DDNA) بدون کلیدهای قدیمی'
+    desc: 'آرایه APNs با گزینه 464XLAT برای iOS 16 و بالاتر'
   },
   {
     id: 'legacy',
     fa: 'فقط iOS 15 و پایین‌تر',
     en: 'iOS 9 → 15',
-    desc: 'کلید APN تکی برای آیفون‌های قدیمی'
+    desc: 'آرایه APNs استاندارد، بدون کلید 464XLAT'
   }
 ];
 
@@ -124,21 +124,21 @@ export const FORMATS = [
 export const IOS_MATRIX = [
   {
     range: 'iOS 9 تا 15',
-    models: 'iPhone 4s تا iPhone 7 و SE نسل اول',
+    models: 'بر اساس نسخه سیستم، نه صرفاً مدل دستگاه',
     format: 'legacy',
-    note: 'پردازنده‌های قدیمی، فقط کلید APN را می‌خوانند.'
+    note: 'ساختار Cellular از iOS 7 معرفی شده؛ این قالب 464XLAT ندارد.'
   },
   {
     range: 'iOS 16 تا 18',
-    models: 'iPhone 8 و X تا iPhone 16',
-    format: 'universal',
-    note: 'هر دو قالب را می‌پذیرند؛ universal امن‌ترین انتخاب است.'
+    models: 'مدل‌های پشتیبانی‌شده توسط نسخه نصب‌شده',
+    format: 'modern',
+    note: '464XLAT از iOS 16 اضافه شده؛ نتیجه با اپراتور واقعی بررسی شود.'
   },
   {
     range: 'iOS 26 و بالاتر',
-    models: 'iPhone 15 تا 17',
-    format: 'universal',
-    note: 'آرایه APNs اولویت دارد؛ APN قدیمی به‌عنوان fallback می‌ماند.'
+    models: 'مدل‌های پشتیبانی‌شده توسط همان نسخه',
+    format: 'modern',
+    note: 'قالب استاندارد؛ نتیجهٔ واقعی روی همه مدل‌ها تأیید نشده است.'
   }
 ];
 

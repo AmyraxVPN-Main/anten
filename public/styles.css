@@ -2,6 +2,12 @@
    Direction: instrument, not marketing. Flat surfaces, hairlines, one accent.
    Dials: ENERGY 1 / RHYTHM 2 / MOTION 1. See DESIGN.md for the reasons behind each choice. */
 
+.diagnostic-choices { display: flex; flex-wrap: wrap; gap: 8px; }
+.diagnostic-choices .mini-btn { white-space: normal; text-align: right; }
+.diagnostic-choices [aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+.diagnostic-advice { color: var(--ink); line-height: 2; border-inline-start: 2px solid var(--line-2); padding-inline-start: 12px; }
+.report-text { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; user-select: text; }
+
 /* self-hosted variable family: one file covers 100 to 900, no third-party request */
 @font-face {
   font-family: "Vazirmatn";

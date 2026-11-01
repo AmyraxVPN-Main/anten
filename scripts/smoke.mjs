@@ -70,45 +70,12 @@ function absorb(res) {
 
 console.log(`smoke → ${BASE}\n`);
 
-/* MDM: enroll, SCEP, check-in, poll, install command */
+/* Unverified enrollment must not register devices or issue identities. */
 {
-  const enroll = await fetch(`${BASE}/mdm/enroll?op=mci`);
-  const body = Buffer.from(await enroll.arrayBuffer());
-  check('enroll returns a profile', enroll.status === 200 && /aspen-config/.test(enroll.headers.get('content-type') || ''), String(enroll.status));
-
-  const caps = await fetch(`${BASE}/mdm/scep?operation=GetCACaps`);
-  check('scep advertises POST', /POSTPKIOperation/.test(await caps.text()));
-  const ca = await fetch(`${BASE}/mdm/scep?operation=GetCACert`);
-  check('scep serves the CA cert', ca.status === 200 && (await ca.arrayBuffer()).byteLength > 400);
-
-  // the enrollment profile is CMS signed, so read the check-in token out of it
-  const xml = await verifyCms(body);
-  const token = xml.match(/checkin\?token=([A-Za-z0-9_-]+)/)?.[1];
-  check('enrollment profile is signed', xml.length > 1000, String(xml.length));
-
-  const udid = `SIM${Date.now()}`;
-  const ci = await fetch(`${BASE}/mdm/checkin?token=${token}`, {
-    method: 'PUT',
-    body: `<plist><dict><key>MessageType</key><string>TokenUpdate</string><key>UDID</key><string>${udid}</string><key>PushMagic</key><string>m</string></dict></plist>`
-  });
-  check('check-in accepted', ci.status === 200, String(ci.status));
-
-  const poll = await fetch(`${BASE}/mdm/server`, {
-    method: 'PUT',
-    body: `<plist><dict><key>MessageType</key><string>Idle</string><key>UDID</key><string>${udid}</string></dict></plist>`
-  });
-  const cmd = await poll.arrayBuffer();
-  check('poll returns a command', poll.status === 200 && cmd.byteLength > 500, String(cmd.byteLength));
-  const cmdXml = await verifyCms(Buffer.from(cmd));
-  check('command is InstallProfile', /InstallProfile/.test(cmdXml));
-  const payload = Buffer.from(cmdXml.match(/<data>([A-Za-z0-9+/=]+)<\/data>/)[1], 'base64').toString('utf8');
-  check('command carries a cellular payload', /com\.apple\.cellular/.test(payload) && /<key>APN</.test(payload));
-
-  const again = await fetch(`${BASE}/mdm/server`, {
-    method: 'PUT',
-    body: `<plist><dict><key>MessageType</key><string>Idle</string><key>UDID</key><string>${udid}</string></dict></plist>`
-  });
-  check('second poll is empty within the window', (await again.arrayBuffer()).byteLength === 0);
+  for (const [route, method] of [['enroll?op=mci', 'GET'], ['scep?operation=GetCACert', 'GET'], ['scep?operation=PKIOperation', 'POST'], ['checkin', 'PUT'], ['server', 'PUT']]) {
+    const response = await fetch(`${BASE}/mdm/${route}`, {method});
+    check(`experimental MDM blocked: ${route}`, response.status === 503);
+  }
 }
 
 /* health */
@@ -160,7 +127,7 @@ let created;
   const xml = await (await fetch(body.previewUrl)).text();
   check('plist root', xml.startsWith('<?xml') && xml.includes('<key>PayloadType</key>\n\t<string>Configuration</string>'));
   check('cellular payload', xml.includes('<string>com.apple.cellular</string>'));
-  check('legacy APN key', xml.includes('<key>APN</key>\n\t\t\t<string>mcinet</string>') || xml.includes('<key>APN</key>'));
+  check('no undocumented root APN key', !xml.includes('<key>APN</key>'));
   check('ddna array', xml.includes('<key>APNs</key>'));
   check('mcinet present', xml.includes('mcinet'));
   check('xlat flag', xml.includes('<key>EnableXLAT464</key>\n\t\t\t\t\t<true/>') || xml.includes('EnableXLAT464'));
@@ -184,8 +151,8 @@ let created;
 {
   const legacy = await post('/api/profile', { operatorId: 'irancell', format: 'legacy' });
   const xml = await (await fetch(legacy.body.previewUrl)).text();
-  check('legacy has APN key', xml.includes('<key>APN</key>'));
-  check('legacy has no APNs array', !xml.includes('<key>APNs</key>'));
+  check('legacy omits iOS 16 XLAT', !xml.includes('<key>EnableXLAT464</key>'));
+  check('legacy uses documented APNs array', xml.includes('<key>APNs</key>'));
   check('legacy irancell', xml.includes('mtnirancell'));
 
   const modern = await post('/api/profile', { operatorId: 'irancell', format: 'modern' });
@@ -225,11 +192,25 @@ let created;
   check('apn injection rejected', injection.res.status === 400, String(injection.res.status));
 }
 
-/* profile body: the profile must resist removal so it stays across drops */
+/* Test profiles must remain removable for recovery. */
 {
   const res = await fetch(created.downloadUrl, { headers: { cookie: cookieHeader() } });
-  const xml = await res.text();
-  check('profile locks removal', /<key>PayloadRemovalDisallowed<\/key>\s*<true\/>/.test(xml), xml.slice(0, 120));
+  const bytes = Buffer.from(await res.arrayBuffer());
+  const xml = bytes[0] === 0x30 ? await verifyCms(bytes) : bytes.toString('utf8');
+  check('test profile can be removed', /<key>PayloadRemovalDisallowed<\/key>\s*<false\/>/.test(xml));
+}
+
+/* Normalized options must survive ledger serialization and download rebuilding. */
+for (const [protocol, mask] of [['ipv4', 1], ['ipv6', 2]]) {
+  const {body} = await post('/api/profile', {operatorId:'irancell', protocol, auth:'NONE', attach:false});
+  const bytes = Buffer.from(await (await fetch(body.downloadUrl)).arrayBuffer());
+  const xml = bytes[0] === 0x30 ? await verifyCms(bytes) : bytes.toString('utf8');
+  check(`${protocol} survives downloaded rebuild`, new RegExp(`<key>AllowedProtocolMask</key>\\s*<integer>${mask}</integer>`).test(xml));
+  check(`${protocol} keeps optional fields off`, !xml.includes('<key>AttachAPN</key>') && !xml.includes('<key>AuthenticationType</key>'));
+}
+for (const invalid of [null, [], {operatorId:'unknown'}, {primaryApn:'a'.repeat(101)}]) {
+  const {res} = await post('/api/profile', invalid);
+  check(`invalid options rejected: ${JSON.stringify(invalid)}`, res.status === 400);
 }
 
 /* token handling */

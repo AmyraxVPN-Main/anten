@@ -1,6 +1,6 @@
 {
   "name": "iregister",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "Anten / iRegister: iOS carrier-profile generator + iPhone registry toolkit (Persian, RTL, PWA)",
@@ -14,6 +14,8 @@
     "smoke": "node scripts/smoke.mjs",
     "shot": "node scripts/screenshot.mjs",
     "inspect": "node scripts/inspect-layout.mjs",
-    "check": "node --check server.js && node --check shared/catalog.js && node --check shared/profile.js && node --check src/config.js && node --check src/ledger.js && node --check src/sign.js && node --check src/imei.js && node --check src/registry.js && node --check public/app.js && node --check public/sw.js"
+    "check": "node scripts/check-syntax.mjs",
+    "test": "node scripts/check-profile.mjs",
+    "build": "node scripts/build-site.mjs"
   }
 }

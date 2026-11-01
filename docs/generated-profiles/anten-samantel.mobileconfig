@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>ConsentText</key>
+	<dict>
+		<key>default</key>
+		<string>این پروفایل تنظیمات شبکه سلولی را روی دستگاه اعمال می‌کند. فقط روی همان گوشی نصب شود که برای آن ساخته شده است.</string>
+	</dict>
+	<key>PayloadContent</key>
+	<array>
+		<dict>
+			<key>PayloadDisplayName</key>
+			<string>Cellular</string>
+			<key>PayloadIdentifier</key>
+			<string>com.apple.cellular.9A441098-B632-449A-8CE0-3BAAB9664933</string>
+			<key>PayloadType</key>
+			<string>com.apple.cellular</string>
+			<key>PayloadUUID</key>
+			<string>9a441098-b632-449a-8ce0-3baab9664933</string>
+			<key>PayloadVersion</key>
+			<integer>1</integer>
+			<key>APNs</key>
+			<array>
+				<dict>
+					<key>AllowedProtocolMask</key>
+					<integer>3</integer>
+					<key>AllowedProtocolMaskInDomesticRoaming</key>
+					<integer>3</integer>
+					<key>AllowedProtocolMaskInRoaming</key>
+					<integer>3</integer>
+					<key>AuthenticationType</key>
+					<string>PAP</string>
+					<key>Name</key>
+					<string>samantel</string>
+					<key>EnableXLAT464</key>
+					<false/>
+				</dict>
+			</array>
+		</dict>
+	</array>
+	<key>PayloadDescription</key>
+	<string>آنتن، سامانتل · samantel</string>
+	<key>PayloadDisplayName</key>
+	<string>آنتن</string>
+	<key>PayloadIdentifier</key>
+	<string>ir.iregister.profile.E7B68EF6-2FDA-46BC-B384-D05DB9D79428</string>
+	<key>PayloadOrganization</key>
+	<string>AmyraxVPN</string>
+	<key>PayloadRemovalDisallowed</key>
+	<false/>
+	<key>PayloadType</key>
+	<string>Configuration</string>
+	<key>PayloadUUID</key>
+	<string>e7b68ef6-2fda-46bc-b384-d05db9d79428</string>
+	<key>PayloadVersion</key>
+	<integer>1</integer>
+</dict>
+</plist>

@@ -2,20 +2,25 @@
    UI controller. profile building goes through the server when reachable and falls back to the
    shared pure builder so the app still works offline or when the service is down. */
 
-import { buildProfile as buildLocal, formatForIos } from '/shared/profile.js?v=__BUILD__';
+import { buildProfile as buildLocal, normalizeOptions, formatForIos, referenceOptions, simpleOptions } from '/shared/profile.js?v=__BUILD__';
 import { OPERATORS, FORMATS, IOS_MATRIX, verificationOf } from '/shared/catalog.js?v=__BUILD__';
 
 const STORE_KEY = 'ir.history.v1';
 const THEME_KEY = 'ir.theme';
+const DROP_KEY = 'ir.events.v1';
+const GUARD_KEY = 'ir.guard.v1';
+const GUARD_REFRESH_MS = 3 * 60 * 60 * 1000;
 
 const state = {
   tab: 'build',
   operatorId: 'mci',
   format: 'universal',
   protocol: 'both',
-  auth: '',
-  xlat: true,
-  attach: true,
+  auth: 'PAP',
+  preset: 'simple',
+  omitCredentials: true,
+  xlat: false,
+  attach: false,
   proxy: '',
   proxyPort: '',
   proxyUsername: '',
@@ -70,7 +75,7 @@ function toast(message, isError = false) {
 function loadHistory() {
   try {
     const raw = JSON.parse(localStorage.getItem(STORE_KEY) || '[]');
-    return Array.isArray(raw) ? raw : [];
+    return Array.isArray(raw) ? raw.filter((h) => h && typeof h === 'object' && typeof h.id === 'string' && Number.isFinite(h.createdAt)).slice(0, 60) : [];
   } catch {
     return [];
   }
@@ -90,12 +95,10 @@ function saveHistory(list) {
    drop (with the uptime it had) and the reported outcome of every install. One copyable report
    carries both, so a tester can paste it into the channel instead of describing it. */
 
-const DROP_KEY = 'ir.events.v1';
-
 function loadDrops() {
   try {
     const raw = JSON.parse(localStorage.getItem(DROP_KEY) || '[]');
-    return Array.isArray(raw) ? raw : [];
+    return Array.isArray(raw) ? raw.filter((d) => d && ['up', 'fail', 'drop'].includes(d.kind) && Number.isFinite(d.at)).slice(0, 120) : [];
   } catch {
     return [];
   }
@@ -110,31 +113,39 @@ function saveDrops(list) {
   }
 }
 
-function recordDrop(operatorId) {
-  const last = state.history.find((h) => h.operatorId === operatorId) || state.history[0];
+function recordDrop(operatorId, profileId) {
+  const last = state.history.find((h) => h.id === profileId) || state.history.find((h) => h.operatorId === operatorId) || state.history[0];
   if (!last) return;
-  const uptime = Date.now() - last.createdAt;
-  // a double tap or a tap right after a build is not a real drop
-  if (uptime < 60_000) return;
+  const success = state.drops.find((d) => d.profileId === last.id && d.kind === 'up');
+  if (state.drops.some((d) => d.profileId === last.id && d.kind === 'drop')) return;
+  const uptime = success ? Math.max(0, Date.now() - success.at) : null;
   saveDrops([
-    { kind: 'drop', at: Date.now(), operatorId: last.operatorId, uptime, ua: navigator.userAgent },
+    { kind: 'drop', at: Date.now(), profileId: last.id, operatorId: last.operatorId, uptime, ua: navigator.userAgent },
     ...state.drops
   ]);
 }
 
 /** the tester's answer right after installing: did the antenna come back or not */
 function recordOutcome(kind) {
-  const last = state.history[0];
+  const last = state.history.find((h) => h.id === state.activeProfileId) || state.history[0];
   if (!last) return;
+  if (!['up', 'fail'].includes(kind)) return;
+  // One answer per profile; corrections replace the answer instead of inflating totals.
+  const previous = state.drops.find((d) => d.profileId === last.id && d.kind === kind);
+  if (previous) return;
   saveDrops([
     {
       kind,
+      profileId: last.id,
+      entries: last.entries,
+      settings: last.settings ? { protocol: last.settings.protocol, auth: last.settings.auth,
+        attach: last.settings.attach, xlat: last.settings.xlat } : undefined,
       at: Date.now(),
       operatorId: last.operatorId,
       format: last.format,
       ua: navigator.userAgent
     },
-    ...state.drops
+    ...state.drops.filter((d) => d.profileId !== last.id || !['up', 'fail'].includes(d.kind))
   ]);
 }
 
@@ -142,7 +153,8 @@ function dropStats() {
   const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
   const today = state.drops.filter((d) => d.kind === 'drop' && d.at >= dayAgo);
   const last = state.drops.find((d) => d.kind === 'drop');
-  const avg = today.length ? Math.round(today.reduce((s, d) => s + (d.uptime || 0), 0) / today.length) : 0;
+  const timed = today.filter((d) => d.profileId && Number.isFinite(d.uptime));
+  const avg = timed.length ? Math.round(timed.reduce((s, d) => s + d.uptime, 0) / timed.length) : 0;
   const ups = state.drops.filter((d) => d.kind === 'up' && d.at >= dayAgo).length;
   const fails = state.drops.filter((d) => d.kind === 'fail' && d.at >= dayAgo).length;
   return { today: today.length, last, avg, ups, fails };
@@ -162,16 +174,24 @@ function testReport() {
   const ios = (navigator.userAgent.match(/OS (\d+[_.]\d+(?:[_.]\d+)?)/) || [])[1]?.replace(/_/g, '.') || 'نامشخص';
   const op = state.history[0]?.operatorId || 'نامشخص';
   const apnList = (state.history[0]?.entries || []).join(' , ');
+  const settings = state.history[0]?.settings;
   return [
     'گزارش تست آنتن',
     `اپراتور: ${op}`,
     `APN: ${apnList || 'نامشخص'}`,
     `iOS: ${ios}`,
-    last ? `آخرین عمر پروفایل: ${durationLabel(last.uptime)}` : 'هنوز افتادنی ثبت نشده',
+    `قالب: ${state.history[0]?.format || 'نامشخص'}`,
+    `پروتکل: ${settings?.protocol || 'نامشخص'} · احراز هویت: ${settings?.auth === 'NONE' ? 'پیش‌فرض سیستم (PAP)' : (settings?.auth || 'پیش‌فرض اپراتور')}`,
+    `AttachAPN: ${settings ? (settings.attach ? 'روشن' : 'خاموش') : 'نامشخص'} · 464XLAT: ${settings ? (settings.xlat && state.history[0]?.format !== 'legacy' ? 'روشن' : 'خاموش') : 'نامشخص'}`,
+    `نشانه: ${state.history[0]?.symptom || 'ثبت نشده'}`,
+    `مدل اعلام‌شده: ${state.history[0]?.deviceModel || state.deviceModel || 'نامشخص'}`,
+    last?.profileId && Number.isFinite(last.uptime) ? `فاصله از گزارش بازگشت تا افتادن: ${durationLabel(last.uptime)}` : 'مدت اتصال اندازه‌گیری نشده',
+    'آمار زیر مجموع همهٔ آزمایش‌ها در همین مرورگر است:',
     `افتادن در ۲۴ ساعت: ${fa(today)}`,
-    `نصب موفق در ۲۴ ساعت: ${fa(ups)}`,
+    `گزارش بازگشت آنتن در ۲۴ ساعت: ${fa(ups)}`,
     `نصب بی‌نتیجه در ۲۴ ساعت: ${fa(fails)}`,
-    avg ? `میانگین عمر: ${durationLabel(avg)}` : null,
+    avg ? `میانگین مدت اتصال گزارش‌شده: ${durationLabel(avg)}` : null,
+    'نتایج دستی هستند؛ وب‌سایت به وضعیت مودم دسترسی ندارد. گزارش شامل رمز APN یا پروکسی نیست.',
     `گوشی: ${navigator.userAgent.includes('iPhone') ? 'iPhone' : 'سایر'}`
   ]
     .filter(Boolean)
@@ -182,13 +202,11 @@ function testReport() {
    Fully automatic path: while guard is on, a fresh profile is minted ahead of time and kept in
    hand, so the user only confirms the install prompt instead of waiting for a build. */
 
-const GUARD_KEY = 'ir.guard.v1';
-const GUARD_REFRESH_MS = 3 * 60 * 60 * 1000;
-
 function loadGuard() {
   try {
     const raw = JSON.parse(localStorage.getItem(GUARD_KEY) || '{}');
-    return { on: raw.on === true, ready: raw.ready || null };
+    const ready = raw.ready;
+    return { on: raw.on === true, ready: ready && (ready.xml || /^https?:/.test(ready.url || '')) ? ready : null };
   } catch {
     return { on: false, ready: null };
   }
@@ -207,16 +225,26 @@ function readyAge() {
 }
 
 function readyFresh() {
-  return Boolean(state.ready && state.ready.url && readyAge() < GUARD_REFRESH_MS);
+  return Boolean(state.ready && (state.ready.xml || state.ready.url) && readyAge() >= 0 && readyAge() < GUARD_REFRESH_MS);
 }
 
 async function primeGuard() {
   if (!state.guard || state.busy) return;
   const last = state.history[0];
   if (!last) return;
-  if (readyFresh() && state.ready.operatorId === last.operatorId) return;
-  state.operatorId = last.operatorId;
-  await handleBuild(true);
+  if (readyFresh() && state.ready.operatorId === last.operatorId && JSON.stringify(state.ready.settings) === JSON.stringify(last.settings)) return;
+  await handleBuild(true, last.settings || { operatorId: last.operatorId, format: last.format });
+}
+
+function restoreSettings(record) {
+  if (record?.settings) Object.assign(state, record.settings);
+}
+
+function profileHistory(id, uuid, payload, entries, extra = {}) {
+  // Saved only on this browser so recovery can reproduce custom APNs and credentials.
+  const effective = normalizeOptions(payload);
+  return { id, uuid, operatorId: payload.operatorId, format: payload.format, entries,
+    createdAt: Date.now(), settings: { ...payload, auth: effective.auth }, symptom: state.symptom || '', deviceModel: state.deviceModel || '', ...extra };
 }
 
 async function api(path, options = {}) {
@@ -230,7 +258,11 @@ async function api(path, options = {}) {
       headers: { 'content-type': 'application/json', ...(options.headers || {}) }
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `خطای سرور (${res.status})`);
+    if (!res.ok) {
+      const error = new Error(data.error || `خطای سرور (${res.status})`);
+      error.status = res.status;
+      throw error;
+    }
     return data;
   } finally {
     clearTimeout(timer);
@@ -268,6 +300,8 @@ let lastFocused = null;
 
 function collectPayload() {
   const payload = {
+    preset: state.preset,
+    omitCredentials: state.omitCredentials,
     operatorId: state.operatorId,
     format: state.format,
     protocol: state.protocol,
@@ -276,7 +310,7 @@ function collectPayload() {
     attach: state.attach,
     displayName: state.displayName,
     webClip: state.webClip,
-    webClipUrl: location.origin + '/',
+    webClipUrl: new URL('./', location.href).href,
     webClipLabel: 'آنتن'
   };
   if (state.proxy) payload.proxy = state.proxy;
@@ -285,7 +319,7 @@ function collectPayload() {
   if (state.proxyPassword) payload.proxyPassword = state.proxyPassword;
   if (state.removalDate) payload.removalDate = `${state.removalDate}T23:59:59Z`;
   if (state.operatorId === 'custom') {
-    payload.customEntries = state.customEntries.filter((e) => e.apn.trim());
+    payload.customEntries = state.customEntries.filter((e) => e.apn.trim()).map((e) => ({ ...e }));
   }
   return payload;
 }
@@ -332,6 +366,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
     linkFails = 0;
     pingNow();
+    primeGuard();
   }
 });
 
@@ -361,7 +396,7 @@ function downloadBlob(text, filename) {
 
 /* ---------- build flow ---------- */
 
-async function handleBuild(silent = false) {
+async function handleBuild(silent = false, preparedPayload = null) {
   // a second tap while a build runs should not be lost, queue exactly one follow-up
   if (state.busy) {
     state.pendingBuild = true;
@@ -372,7 +407,17 @@ async function handleBuild(silent = false) {
   let payload;
 
   try {
-    payload = collectPayload();
+    payload = preparedPayload || collectPayload();
+    // Prepared files survive a reload. A blob URL is valid only in its creating document.
+    if (silent) {
+      const built = buildLocal(payload);
+      state.ready = { xml: built.xml, id: built.uuids.root, operatorId: payload.operatorId,
+        entries: built.opts.entries.map((e) => e.apn), format: payload.format,
+        settings: payload, at: Date.now() };
+      saveGuard();
+      if (state.tab === 'build') renderBuild();
+      return;
+    }
     const btn = document.getElementById('buildBtn');
     if (btn && !silent) {
       btn.disabled = true;
@@ -386,62 +431,31 @@ async function handleBuild(silent = false) {
       : await api('/api/profile', { method: 'POST', body: JSON.stringify(payload) });
     state.lastBuild = res;
     saveHistory([
-      {
-        id: res.id,
-        uuid: res.uuid,
-        operatorId: payload.operatorId,
-        format: res.format,
-        entries: res.entries,
-        createdAt: Date.now(),
-        url: res.downloadUrl,
-        preview: res.previewUrl
-      },
+      profileHistory(res.id, res.uuid, payload, res.entries, { url: res.downloadUrl, preview: res.previewUrl }),
       ...state.history
     ]);
 
-    if (silent) {
-      // guard mode: keep a ready-to-install file in hand and stay off the screen
-      state.ready = { url: res.downloadUrl, entries: res.entries, format: res.format, at: Date.now() };
-      saveGuard();
-      if (state.tab === 'build') renderBuild();
-      return;
-    }
-
+    state.activeProfileId = res.id;
     downloadUrl(res.downloadUrl);
     openSheet('پروفایل ساخته شد', installSheetHtml(res.entries, res.format));
     // refresh the view underneath so the recovery card is already there when the sheet closes
     if (state.tab === 'build') renderBuild();
   } catch (err) {
+    if (silent || (err.status >= 400 && err.status < 500)) {
+      toast(err.message || 'تنظیمات را بررسی کنید', true);
+      return;
+    }
     try {
       const built = buildLocal(payload);
       const { xml, uuids } = built;
       // the APN actually baked into the file: a test report without it cannot be diagnosed
       const apns = (built.opts?.entries || []).map((e) => e.apn).filter(Boolean);
-      if (silent) {
-        // no server: hold a blob instead of a download link, the install button uses it as is
-        state.ready = {
-          url: URL.createObjectURL(new Blob([xml], { type: 'application/x-apple-aspen-config' })),
-          entries: apns,
-          format: payload.format,
-          at: Date.now()
-        };
-        saveGuard();
-        if (state.tab === 'build') renderBuild();
-        return;
-      }
       downloadBlob(xml, `anten-${uuids.root.slice(0, 8)}.mobileconfig`);
       saveHistory([
-        {
-          id: uuids.root,
-          uuid: uuids.root,
-          operatorId: payload.operatorId,
-          format: payload.format,
-          entries: apns,
-          createdAt: Date.now(),
-          local: true
-        },
+        profileHistory(uuids.root, uuids.root, payload, apns, { local: true }),
         ...state.history
       ]);
+      state.activeProfileId = uuids.root;
       renderBuild();
       openSheet('پروفایل ساخته شد', installSheetHtml(apns, payload.format));
       toast('پروفایل ساخته شد؛ در Settings نصبش کنید');
@@ -467,20 +481,20 @@ async function handleBuild(silent = false) {
 function installSheetHtml(entries, format) {
   return `
     <div class="steps">
-      <li><b>دانلود شد.</b> Safari پیام «Profile Downloaded» را نشان می‌دهد.</li>
+      <li><b>فایل آماده است.</b> در Safari دانلود را تأیید کنید؛ نمایش این پنجره به معنی نصب نیست.</li>
       <li><b>تنظیمات</b>: <bdi dir="ltr">General → VPN &amp; Device Management → Downloaded Profile</bdi></li>
       <li>روی پروفایل بزنید، <b>Install</b> و بعد تأیید رمز عبور دستگاه.</li>
-      <li><b>گوشی را ری‌استارت کنید</b>؛ اگر آنتن نیامد ۳۰ ثانیه حالت هواپیما را روشن و خاموش کنید.</li>
+      <li>پس از نصب، اتصال داده را بررسی کنید. در صورت نیاز یک بار حالت هواپیما را روشن و خاموش کنید.</li>
     </div>
     <div class="divider"></div>
     <p class="muted">قالب: ${esc(format)} ${entries && entries.length ? `· APN: ${esc(entries.join(' , '))}` : ''}</p>
-    <p class="muted">اگر بعد از نصب آنتن نیامد، پروفایل را از تنظیمات حذف کنید و یک بار دیگر بسازید؛ هر پروفایل UUID تازه دارد و نصب دوباره، مودم را مجبور می‌کند تنظیمات را از نو بخواند.</p>
-    <p class="muted">اگر پیام «پروفایل ناشناس / Unsigned» دیدید، نصب را ادامه دهید؛ پروفایل بدون امضای تجاری هم روی گوشی نصب می‌شود.</p>
+    <p class="muted">پیش از آزمایش بعدی، پروفایل آزمایشی قبلی را از تنظیمات حذف کنید. پروفایل APN، رجیستری یا محدودیت IMEI شبکه را تغییر نمی‌دهد و بازگشت آنتن تضمین‌شده نیست.</p>
+    <p class="muted">فایل محلی بدون امضا است. در صورت نمایش Unsigned، فقط اگر منبع و تنظیمات فایل را می‌شناسید نصب کنید.</p>
     <div class="divider"></div>
     <p class="muted">نتیجه چه بود؟ همین حالا ثبت کنید تا تست جمع‌بندی شود.</p>
     <div class="hist-actions" style="margin-top:8px">
-      <button class="mini-btn accent" data-act="report-up" type="button">آنتن آمد</button>
-      <button class="mini-btn danger" data-act="report-fail" type="button">آنتن نیامد</button>
+      <button class="mini-btn accent" data-act="report-up" type="button">نصب کردم، آنتن آمد</button>
+      <button class="mini-btn danger" data-act="report-fail" type="button">نصب کردم، نتیجه نداد</button>
     </div>
   `;
 }
@@ -536,7 +550,7 @@ const SELECT_FIELDS = {
     { value: '', label: 'خودکار' },
     { value: 'PAP', label: 'PAP' },
     { value: 'CHAP', label: 'CHAP' },
-    { value: 'NONE', label: 'بدون احراز' }
+    { value: 'NONE', label: 'پیش‌فرض سیستم (PAP)' }
   ]
 };
 
@@ -592,6 +606,7 @@ function openSelect(sel) {
 }
 
 function commitSelect(sel, value) {
+  markCustomSettings();
   const name = sel.dataset.sel;
   state[name] = value;
   const items = [...sel.querySelectorAll('[role="option"]')];
@@ -626,7 +641,7 @@ function renderBuild() {
   // guard: the automatic path. Ready file in hand beats a button that has to build first.
   const ready = state.ready;
   const readyCard =
-    state.guard && ready && ready.url
+    state.guard && readyFresh()
       ? `<div class="recover ready">
           <div class="recover-main">
             <span class="recover-label">پروفایل آماده، ساخته‌شده ${ageLabel(ready.at)}</span>
@@ -640,23 +655,13 @@ function renderBuild() {
     ? `<div class="guard-row">
         <div>
           <b>نگهبان خودکار</b>
-          <span>هر ۳ ساعت پروفایل تازه آماده نگه می‌دارد تا موقع افتادن آنتن، آماده باشد.</span>
+          <span>وقتی صفحه باز است، فایل تازه آماده می‌کند. نصب در تنظیمات دستی است. فایل و تنظیمات آن فقط در همین مرورگر ذخیره می‌شوند.</span>
         </div>
         <button class="switch" role="switch" aria-checked="${state.guard}" data-act="toggle-guard" type="button" aria-label="نگهبان خودکار"><span></span></button>
       </div>`
     : '';
 
   // cloud guard: a managed phone needs no taps at all, so it sits under the local guard
-  const cloudRow =
-    last && last.operatorId !== 'custom' && !STATIC
-      ? `<a class="cloud-row" href="/mdm/enroll?op=${encodeURIComponent(last.operatorId)}" data-guard-link>
-          <div>
-            <b>نگهبان ابری، بدون هیچ کاری</b>
-            <span>یک‌بار نصب می‌کنید و سرور خودش هر ۶ ساعت پروفایل تازه می‌فرستد.</span>
-          </div>
-          <span class="cloud-go" aria-hidden="true">›</span>
-        </a>`
-      : '';
 
   const recoverHtml = last
     ? `
@@ -664,7 +669,6 @@ function renderBuild() {
       ${linkBanner}
       ${readyCard}
       ${guardRow}
-      ${cloudRow}
       <div class="recover">
         <div class="recover-main">
           <span class="recover-label">آخرین پروفایل</span>
@@ -672,7 +676,7 @@ function renderBuild() {
         </div>
         <button class="mini-btn accent" data-act="rebuild" data-op="${esc(last.operatorId)}" type="button">آنتن پرید؟ پروفایل تازه</button>
       </div>
-      <p class="hint">آنتن معمولاً بعد از ری‌استارت، آپدیت iOS یا تعویض سیم‌کارت می‌پرد. همان لحظه یک پروفایل تازه بسازید؛ نصب دوباره‌ی پروفایل قدیمی با UUID قبلی، مودم را بیدار نمی‌کند.</p>
+      <p class="hint">ساخت فایل به معنی نصب یا بازگشت آنتن نیست. برای مقایسه، پیش از نصب فایل تازه، پروفایل آزمایشی قبلی را حذف کنید.</p>
     </section>`
     : linkBanner
       ? `<section class="block">${linkBanner}</section>`
@@ -709,7 +713,7 @@ function renderBuild() {
 
   const allNote =
     state.operatorId === 'all'
-      ? `<p class="hint">پروفایل «همه اپراتورها» APN تمام اپراتورهای شناخته‌شده را در یک فایل می‌گذارد؛ برای دو سیم‌کارت با دو اپراتور مختلف همین گزینه را انتخاب کنید.</p>`
+      ? `<p class="hint">این گزینه چند APN را کنار هم می‌گذارد و سازگاری آن تأیید نشده است. برای عیب‌یابی، اپراتور همان سیم‌کارت داده را انتخاب کنید.</p>`
       : '';
 
   const activeOp = OPERATORS.find((o) => o.id === state.operatorId);
@@ -743,6 +747,16 @@ function renderBuild() {
     ${allNote}
     ${sourcesNote}
     ${iosNote}
+    <section class="block reference-presets">
+      <h2 class="block-title">ساختار ساده و نمونه‌های بررسی‌شده</h2>
+      <div class="diagnostic-choices">
+        <button class="mini-btn" type="button" data-act="reference" data-value="mci" aria-pressed="${state.preset === 'reference' && state.operatorId === 'mci'}">همراه اول، مطابق نمونه</button>
+        <button class="mini-btn" type="button" data-act="reference" data-value="irancell" aria-pressed="${state.preset === 'reference' && state.operatorId === 'irancell'}">ایرانسل، مطابق نمونه</button>
+        <button class="mini-btn" type="button" data-act="simple" aria-pressed="${state.preset === 'simple'}">ساختار ساده برای اپراتور انتخاب‌شده</button>
+      </div>
+      <p class="hint">${state.preset === 'reference' ? 'حالت نمونه فعال است. ' : state.preset === 'simple' ? 'ساختار ساده فعال است. ' : ''}نمونه‌های همراه اول و ایرانسل با تنظیمات فایل ارائه‌شده یکسان‌اند. بقیهٔ اپراتورها از APN خودشان در همین ساختار استفاده می‌کنند و به تست واقعی نیاز دارند. UUID و نام سازنده جدید است؛ امضای فروشنده کپی نمی‌شود.</p>
+    </section>
+    ${diagnosticsHtml()}
     <details class="adv" ${state.advanced ? 'open' : ''}>
       <summary>تنظیمات پیشرفته</summary>
       <div class="adv-body">
@@ -770,19 +784,15 @@ function renderBuild() {
             <input data-bind="proxyPort" value="${esc(state.proxyPort)}" placeholder="8080" dir="ltr" inputmode="numeric">
           </div>
         </div>
-        <div class="row-2">
-          <div class="field">
-            <label>کاربر پروکسی</label>
-            <input data-bind="proxyUsername" value="${esc(state.proxyUsername)}" dir="ltr" inputmode="latin">
-          </div>
-          <div class="field">
-            <label>رمز پروکسی</label>
-            <input data-bind="proxyPassword" value="${esc(state.proxyPassword)}" type="password" dir="ltr">
-          </div>
-        </div>
+        <p class="hint">پروکسی در ساختار سلولی فقط آدرس و پورت می‌گیرد؛ احراز هویت پروکسی پشتیبانی نمی‌شود.</p>
         <div class="field">
           <label>تاریخ انقضای پروفایل <span class="sub">اختیاری</span></label>
           <input type="date" data-bind="removalDate" value="${esc(state.removalDate)}">
+        </div>
+        <div class="switch">
+          <span class="switch-label">بدون اطلاعات ورود APN <small>نام کاربری و رمز در فایل قرار نگیرد</small></span>
+          <input type="checkbox" data-bind="omitCredentials" ${state.omitCredentials ? 'checked' : ''}>
+          <span class="track"></span>
         </div>
         <div class="switch">
           <span class="switch-label">464XLAT <small>برای شبکه‌های IPv6 اپراتورهای ایرانی</small></span>
@@ -790,7 +800,7 @@ function renderBuild() {
           <span class="track"></span>
         </div>
         <div class="switch">
-          <span class="switch-label">AttachAPN <small>اجبار مودم به اتصال با همین APN</small></span>
+          <span class="switch-label">AttachAPN <small>استفاده از همین APN برای اتصال اولیه، وابسته به پشتیبانی اپراتور</small></span>
           <input type="checkbox" data-bind="attach" ${state.attach ? 'checked' : ''}>
           <span class="track"></span>
         </div>
@@ -801,12 +811,36 @@ function renderBuild() {
         </div>
       </div>
     </details>
-    <p class="hint">هر بار ساخت، یک UUID تازه تولید می‌شود. پروفایل برای همان گوشی است که آنتنش پریده، حتی اگر IMEI آن هنوز رجیستر نشده باشد. هر پروفایل را فقط روی یک گوشی نصب کنید.</p>
+    <p class="hint">این ابزار برای تنظیم APN آیفون است. هر فایل UUID تازه دارد؛ این شناسه مجوز اتصال شبکه یا تضمین بازگشت آنتن نیست. تنظیمات فایل برای بازیابی در همین مرورگر ذخیره می‌شوند.</p>
     ${summary}
     <div class="cta-bar">
       <button class="cta" id="buildBtn" type="button">ساخت پروفایل اختصاصی</button>
     </div>
   `;
+}
+
+function diagnosticsHtml() {
+  const symptoms = { data: 'آنتن هست، اینترنت نیست', service: 'بدون سرویس یا SOS', unstable: 'اتصال می‌آید و می‌رود' };
+  const advice = {
+    data: 'دادهٔ همراه، اعتبار بسته و سیم‌کارت انتخاب‌شده برای اینترنت را بررسی کنید. APN را از اپراتور بگیرید. اگر پروفایل قبلی دارید، قبل از آزمایش آن را حذف کنید.',
+    service: 'APN معمولاً تنظیم اینترنت است؛ پیام SOS یا No Service به بررسی پوشش، فعال بودن سیم‌کارت و وضعیت دستگاه نزد اپراتور نیاز دارد. این فایل IMEI را تغییر نمی‌دهد و مسدودی شبکه را برنمی‌دارد.',
+    unstable: 'زمان بازگشت و افتادن را با دکمه‌های گزارش ثبت کنید. پوشش، تغییر شبکه و وضعیت سیم‌کارت را بررسی کنید؛ از صرف آمدن و رفتن آنتن نمی‌توان علت را تشخیص داد.'
+  };
+  return `<details class="adv diagnostics" ${state.symptom ? 'open' : ''}>
+    <summary>عیب‌یابی اتصال و آزمایش سازگاری</summary>
+    <div class="adv-body">
+      <p class="hint">این فایل مخصوص iPhone و iPad سلولی است؛ برای اندروید باید APN را از تنظیمات خود گوشی تغییر دهید. وب‌سایت وضعیت مودم را نمی‌بیند.</p>
+      <div class="diagnostic-choices">${Object.entries(symptoms).map(([id, label]) => `<button type="button" class="mini-btn" data-act="symptom" data-value="${id}" aria-pressed="${state.symptom === id}">${label}</button>`).join('')}</div>
+      ${state.symptom ? `<p class="diagnostic-advice" role="status">${advice[state.symptom] || ''}</p>` : ''}
+      <div class="field"><label for="deviceModel">مدل گوشی برای گزارش، اختیاری</label><input id="deviceModel" data-bind="deviceModel" maxlength="60" value="${esc(state.deviceModel || '')}" placeholder="مثلاً iPhone 13"></div>
+      <p class="hint">هر بار فقط یک تنظیم را عوض کنید، فایل بسازید و پس از نصب نتیجه را ثبت کنید. این‌ها آزمایش‌اند و ممکن است اتصال را بهتر نکنند.</p>
+      <div class="diagnostic-choices">
+        <button class="mini-btn" type="button" data-act="trial" data-value="ipv4">آزمایش فقط IPv4</button>
+        <button class="mini-btn" type="button" data-act="trial" data-value="no-attach">آزمایش بدون AttachAPN</button>
+        <button class="mini-btn" type="button" data-act="trial" data-value="defaults">بازگشت به پیش‌فرض اپراتور</button>
+      </div>
+    </div>
+  </details>`;
 }
 
 /* ---------- guide ---------- */
@@ -827,8 +861,8 @@ function renderGuide() {
         <li><b>ساخت:</b> اپراتور را انتخاب کنید و «ساخت پروفایل اختصاصی» را بزنید.</li>
         <li><b>دانلود:</b> Safari پیام Profile Downloaded را نشان می‌دهد.</li>
         <li><b>نصب:</b> <bdi dir="ltr">Settings → General → VPN &amp; Device Management → Downloaded Profile</bdi> و بعد Install.</li>
-        <li><b>راه‌اندازی:</b> ری‌استارت کنید؛ ۳۰ ثانیه حالت هواپیما روشن و خاموش.</li>
-        <li><b>پایداری:</b> بعد از هر آپدیت iOS، پروفایل تازه با UUID جدید بسازید.</li>
+        <li><b>بررسی:</b> اتصال اینترنت را آزمایش کنید و نتیجه را در صفحه ثبت کنید.</li>
+        <li><b>آزمایش بعدی:</b> پروفایل آزمایشی قبلی را حذف کنید تا تنظیمات روی هم انباشته نشوند.</li>
       </ol>
     </section>
     <section class="block">
@@ -836,17 +870,17 @@ function renderGuide() {
       ${matrix}
       <div class="card">
         <h3>قالب universal</h3>
-        <p>هم کلید APN قدیمی و هم آرایه APNs مدرن را در یک فایل می‌گذارد؛ روی iOS ۹ تا ۲۶ نصب می‌شود و برای فروشنده‌ای که نسخه گوشی مشتری را نمی‌داند مطمئن‌ترین انتخاب است.</p>
+        <p>همه قالب‌ها از آرایه APNs در ساختار رسمی Cellular اپل استفاده می‌کنند. قالب legacy کلید 464XLAT را حذف می‌کند. پذیرش تنظیمات به نسخه سیستم و اپراتور بستگی دارد؛ اعتبار ساختار فایل به معنی تأیید عملکرد روی همه نسخه‌ها نیست.</p>
       </div>
     </section>
     <section class="block">
       <h2 class="block-title">وقتی آنتن پایدار نیست</h2>
-      <div class="card"><p>پروفایل قبلی را از Settings حذف کنید، پروفایل تازه بسازید، نصب کنید و بعد از نصب یک بار حالت هواپیما را روشن و خاموش کنید. دو پروفایل هم‌زمان با APN متفاوت روی یک گوشی، تنظیمات را قفل می‌کند.</p></div>
+      <div class="card"><p>از بخش عیب‌یابی، نشانه را انتخاب کنید. پوشش، وضعیت سیم‌کارت و APN را بررسی کنید. برای مقایسه، تنها یک پروفایل آزمایشی را نگه دارید و هر بار یک تنظیم را تغییر دهید.</p></div>
     </section>
     <section class="block">
       <h2 class="block-title">حالت نگهبان، تا حد ممکن خودکار</h2>
       <div class="card">
-        <p>نگهبان خودکار را از صفحه‌ی ساخت روشن کنید. تا وقتی روشن است، اپ هر ۳ ساعت یک پروفایل تازه آماده نگه می‌دارد و اگر لینک قطع شود، همان لحظه پیش از درخواست شما یکی می‌سازد. کار شما فقط تأیید پنجره‌ی نصب است.</p>
+        <p>نگهبان وقتی صفحه باز و فعال باشد، فایل تازه را در همین مرورگر آماده نگه می‌دارد. iOS ممکن است اجرای صفحه در پس‌زمینه را متوقف کند. پس از بازگشت به صفحه، تازگی فایل بررسی می‌شود. نصب در Settings همچنان دستی است.</p>
         <p class="muted" style="margin-top:8px">چرا هیچ‌چیز کاملاً بی‌تپ نمی‌شود: iOS نصب پروفایل را بدون تأیید انجام نمی‌دهد، مگر دستگاه زیر MDM باشد.</p>
       </div>
     </section>
@@ -855,32 +889,24 @@ function renderGuide() {
       <div class="card">
         <p>اگر پروفایل نصب شد و آنتن اصلاً نیامد، این چهار بررسی را به ترتیب انجام دهید:</p>
         <ol class="steps" style="margin-top:8px">
-          <li><b>APN اپراتور:</b> اپراتور را دقیق انتخاب کنید. اپراتورهای مجازی مثل شاتل موبایل و آپتل APN خودشان را دارند و APN اشتباه هیچ آنتنی برنمی‌گرداند.</li>
-          <li><b>نوع شبکه:</b> در <bdi dir="ltr">Settings → Cellular → Voice &amp; Data</bdi> روی 3G بگذارید و دوباره امتحان کنید.</li>
+          <li><b>APN اپراتور:</b> مقدار دقیق را از پشتیبانی اپراتور بگیرید؛ مقادیر پیش‌فرض هنوز با سیم‌کارت واقعی تأیید نشده‌اند.</li>
+          <li><b>نوع مشکل:</b> آنتن بدون اینترنت را از SOS یا No Service جدا کنید؛ دومی می‌تواند از پوشش یا محدودیت شبکه باشد.</li>
           <li><b>نصب واقعی:</b> در <bdi dir="ltr">VPN &amp; Device Management</bdi> ببینید پروفایل با همان APN نشسته باشد.</li>
-          <li><b>گزارش:</b> در شیت نصب «آنتن نیامد» را بزنید و از تب تاریخچه «کپی گزارش» را بفرستید تا APN درست به فهرست اضافه شود.</li>
+          <li><b>گزارش:</b> بعد از نصب، نتیجه را در شیت یا تاریخچه ثبت کنید و گزارش را کپی کنید. یک نتیجه به‌تنهایی علت مشکل را اثبات نمی‌کند.</li>
         </ol>
       </div>
     </section>
     <section class="block">
-      <h2 class="block-title">نگهبان ابری، بدون هیچ کاری</h2>
+      <h2 class="block-title">وضعیت نگهبان ابری</h2>
       <div class="card">
-        <p>اگر می‌خواهید یک ماه حتی همان یک تأیید را هم نزنید، از دکمه‌ی «نگهبان ابری» استفاده کنید. یک‌بار پروفایل ثبت نصب می‌شود و بعد سرور خودش پروفایل سلولی تازه می‌فرستد؛ iOS آن را بدون تأیید نصب می‌کند.</p>
-        <p class="muted" style="margin-top:8px">گوشی از آن به بعد «مدیریت‌شده» نشان می‌دهد و سرور باید از بیرون روی HTTPS در دسترس باشد. تأخیرش به بازه‌ی پرسش iOS بستگی دارد، معمولاً چند ده دقیقه.</p>
+        <p>ثبت مدیریت دستگاه در این نسخه غیرفعال است. مسیر آزمایشی MDM هنوز برای احراز هویت، سازگاری پروتکل و نصب روی آیفون واقعی تأیید نشده است.</p>
       </div>
     </section>
     <section class="block">
       <h2 class="block-title">نگهداری طولانی‌مدت</h2>
       <div class="card">
-        <p>iOS اجازه نمی‌دهد پروفایل بی‌اجازه نصب شود (مگر MDM)، پس یک ماه از یک نصب درنمی‌آید؛ از حلقه‌ای درمی‌آید که خودش پروفایل تازه بسازد. دو سطح دارد:</p>
-        <p class="muted" style="margin-top:10px">سطح یک، بدون نصب: هر چند ساعت مودم را بیدار کنید.</p>
-        <ol class="steps" style="margin-top:8px">
-          <li><bdi dir="ltr">Shortcuts → Automation → New Automation → Time of Day</bdi></li>
-          <li>بازه را روی هر ۳ تا ۴ ساعت بگذارید.</li>
-          <li><bdi dir="ltr">Add Action → Airplane Mode → Turn On</bdi>، بعد Turn Off.</li>
-          <li>Run Immediately و Run Without Asking را روشن کنید.</li>
-        </ol>
-        <p class="muted" style="margin-top:12px">سطح دو، با پروفایل تازه: همان اتوماسیون، اکشن <bdi dir="ltr">Open URLs</bdi> روی آدرس اپ با <bdi dir="ltr">#recover</bdi>. اپ باز می‌شود و بلافاصله پروفایل می‌سازد؛ فقط تأیید نصب در Settings می‌ماند.</p>
+        <p>مدت اتصال قابل تضمین نیست. پروفایل APN مجوز رجیستری یا هویت دستگاه را عوض نمی‌کند. اگر شبکه IMEI را مسدود کرده باشد، تکرار نصب راه‌حل رفع آن نیست.</p>
+        <p class="muted">لینک <bdi dir="ltr">#recover</bdi> فقط ساخت فایل تازه با تنظیمات آخر را آغاز می‌کند؛ نصب دستی است و اتصال را تضمین نمی‌کند.</p>
       </div>
     </section>
     <section class="block">
@@ -898,16 +924,16 @@ function testBlock() {
   if (!state.drops.length) {
     return `<div class="card" style="margin-bottom:12px">
       <h3>آمار تست</h3>
-      <p class="muted">بعد از نصب، در همان شیت «آنتن آمد» یا «آنتن نیامد» را بزنید. وقتی هم آنتن افتاد، «آنتن پرید؟ پروفایل تازه» را بزنید تا عمر پروفایل ثبت شود.</p>
+      <p class="muted">بعد از نصب، نتیجه را در شیت یا همان ردیف تاریخچه ثبت کنید. مدت اتصال فقط از زمان گزارش «آنتن آمد» تا گزارش افتادن محاسبه می‌شود.</p>
     </div>`;
   }
   return `<div class="card" style="margin-bottom:12px">
     <h3>آمار تست</h3>
-    ${last ? `<div class="kv"><span>آخرین عمر پروفایل</span><span>${durationLabel(last.uptime)}</span></div>` : ''}
+    ${last?.profileId && Number.isFinite(last.uptime) ? `<div class="kv"><span>اتصال گزارش‌شدهٔ آخر</span><span>${durationLabel(last.uptime)}</span></div>` : '<p class="muted">مدت اتصال اندازه‌گیری نشده است.</p>'}
     <div class="kv"><span>افتادن در ۲۴ ساعت</span><span>${fa(today)}</span></div>
-    <div class="kv"><span>نصب موفق در ۲۴ ساعت</span><span>${fa(ups)}</span></div>
+    <div class="kv"><span>گزارش بازگشت در ۲۴ ساعت</span><span>${fa(ups)}</span></div>
     <div class="kv"><span>نصب بی‌نتیجه در ۲۴ ساعت</span><span>${fa(fails)}</span></div>
-    ${avg ? `<div class="kv"><span>میانگین عمر</span><span>${durationLabel(avg)}</span></div>` : ''}
+    ${avg ? `<div class="kv"><span>میانگین اتصال گزارش‌شده</span><span>${durationLabel(avg)}</span></div>` : ''}
     <div class="hist-actions" style="margin-top:10px">
       <button class="mini-btn accent" data-act="copy-report" type="button">کپی گزارش</button>
     </div>
@@ -945,7 +971,9 @@ function renderHistory() {
         <div class="hist-actions">
           ${h.url ? `<a class="mini-btn accent" href="${esc(h.url)}" rel="noopener">دانلود دوباره</a>` : ''}
           <button class="mini-btn" data-act="copy-uuid" data-uuid="${esc(h.uuid || h.id)}" type="button">کپی UUID</button>
-          <button class="mini-btn" data-act="rebuild" data-op="${esc(h.operatorId)}" type="button">پروفایل تازه</button>
+          <button class="mini-btn" data-act="report-up" data-id="${esc(h.id)}" type="button">نصب کردم، آنتن آمد</button>
+          <button class="mini-btn" data-act="report-fail" data-id="${esc(h.id)}" type="button">نصب کردم، نتیجه نداد</button>
+          <button class="mini-btn" data-act="rebuild" data-op="${esc(h.operatorId)}" data-id="${esc(h.id)}" type="button">پروفایل تازه</button>
           <button class="mini-btn danger" data-act="del-hist" data-id="${esc(h.id)}" type="button">حذف</button>
         </div>
       </div>`;
@@ -959,7 +987,7 @@ function renderAbout() {
   view.innerHTML = `
     <div class="card">
       <h3>آنتن · iRegister</h3>
-      <p>مولد پروفایل اختصاصی سلولی برای آیفون. پروفایل، تنظیمات APN و پارامترهای اتصال را از نو به مودم می‌دهد تا آنتن بعد از ری‌استارت، آپدیت یا تعویض سیم‌کارت برنگردد.</p>
+      <p>مولد پروفایل APN برای آیفون، همراه با عیب‌یابی و ثبت نتیجهٔ آزمایش. این ابزار وضعیت مودم را نمی‌خواند و بازگشت یا پایداری آنتن را تضمین نمی‌کند.</p>
     </div>
     <div class="card">
       <h3>وضعیت سرویس</h3>
@@ -968,7 +996,7 @@ function renderAbout() {
     </div>
     <div class="card">
       <h3>نسخه</h3>
-      <p class="muted">1.0.0 · قالب universal / modern / legacy · سه اپراتور اصلی + MVNO + APN سفارشی</p>
+      <p class="muted">1.1.0 · عیب‌یابی اتصال، گزارش تست و بازیابی تنظیمات · سه قالب خروجی</p>
     </div>
     <div class="card">
       <h3>حق نشر</h3>
@@ -1039,7 +1067,8 @@ view.addEventListener('click', (event) => {
   // action buttons carry data-op too; they must fall through to the data-act branch
   const opBtn = target.closest('[data-op]:not([data-act])');
   if (opBtn) {
-    state.operatorId = opBtn.dataset.op;
+    if (state.preset) Object.assign(state, simpleOptions(opBtn.dataset.op));
+    else { state.operatorId = opBtn.dataset.op; state.auth = 'PAP'; }
     renderBuild();
     return;
   }
@@ -1052,8 +1081,38 @@ view.addEventListener('click', (event) => {
   const act = target.closest('[data-act]');
   if (act) {
     const kind = act.dataset.act;
-
+    if (kind === 'simple') {
+      Object.assign(state, simpleOptions(state.operatorId));
+      renderBuild();
+      toast('ساختار ساده اعمال شد؛ اکنون پروفایل بسازید');
+      return;
+    }
+    if (kind === 'reference') {
+      Object.assign(state, referenceOptions(act.dataset.value));
+      renderBuild();
+      toast('تنظیمات نمونه اعمال شد؛ اکنون پروفایل بسازید');
+      return;
+    }
+    if (kind === 'symptom') {
+      state.symptom = act.dataset.value;
+      renderBuild();
+      view.querySelector(`[data-act="symptom"][data-value="${state.symptom}"]`)?.focus();
+      return;
+    }
+    if (kind === 'trial') {
+      state.preset = '';
+      if (act.dataset.value === 'ipv4') state.protocol = 'ipv4';
+      if (act.dataset.value === 'no-attach') state.attach = false;
+      if (act.dataset.value === 'defaults') {
+        Object.assign(state, simpleOptions(state.operatorId));
+      }
+      state.advanced = true;
+      renderBuild();
+      toast('تنظیم آزمایش اعمال شد؛ برای دریافت فایل، ساخت پروفایل را بزنید');
+      return;
+    }
     if (kind === 'add-apn') {
+      if (state.customEntries.length >= 8) { toast('حداکثر ۸ APN مجاز است', true); return; }
       state.customEntries.push({ apn: '', username: '', password: '' });
       renderBuild();
     }
@@ -1070,28 +1129,32 @@ view.addEventListener('click', (event) => {
       );
     }
     if (kind === 'copy-report') {
-      navigator.clipboard?.writeText(testReport()).then(
-        () => toast('گزارش کپی شد، در کانال بفرست'),
-        () => toast('کپی نشد؛ متن را از پایین بخوان', true)
-      );
+      copyReport();
     }
     if (kind === 'report-up' || kind === 'report-fail') {
+      state.activeProfileId = act.dataset.id;
       recordOutcome(kind === 'report-up' ? 'up' : 'fail');
       toast(kind === 'report-up' ? 'ثبت شد: آنتن آمد' : 'ثبت شد: آنتن نیامد');
+      if (state.tab === 'history') renderHistory();
       return;
     }
     if (kind === 'rebuild') {
       // this tap is the user reporting a drop, so it is the measurement point
-      recordDrop(act.dataset.op || state.operatorId);
+      recordDrop(act.dataset.op || state.operatorId, act.dataset.id);
       state.operatorId = act.dataset.op || state.operatorId;
+      restoreSettings(state.history.find((h) => h.id === act.dataset.id) || state.history.find((h) => h.operatorId === state.operatorId));
       state.tab = 'build';
       render();
       setTimeout(handleBuild, 60);
     }
     if (kind === 'install-ready') {
       const ready = state.ready;
-      if (!ready || !ready.url) return;
-      downloadUrl(ready.url);
+      if (!readyFresh() || !ready.xml) { primeGuard(); toast('فایل تازه در حال آماده‌سازی است'); return; }
+      if (!state.history.some((h) => h.id === ready.id)) {
+        saveHistory([profileHistory(ready.id, ready.id, ready.settings, ready.entries, { local: true }), ...state.history]);
+      }
+      state.activeProfileId = ready.id;
+      downloadBlob(ready.xml, `anten-${ready.id.slice(0, 8)}.mobileconfig`);
       openSheet('پروفایل آماده', installSheetHtml(ready.entries || [], ready.format || 'universal'));
       return;
     }
@@ -1175,6 +1238,7 @@ document.addEventListener('click', (event) => {
 
 view.addEventListener('input', (event) => {
   const el = event.target;
+  if (el.dataset.custom || (el.dataset.bind && el.dataset.bind !== 'deviceModel')) markCustomSettings();
 
   if (el.dataset.custom) {
     const i = Number(el.dataset.i);
@@ -1184,7 +1248,7 @@ view.addEventListener('input', (event) => {
 
   if (el.dataset.bind) {
     const key = el.dataset.bind;
-    if (key !== 'format' && key !== 'protocol' && key !== 'auth') state[key] = el.value;
+    if (!['format', 'protocol', 'auth', 'xlat', 'attach', 'webClip', 'omitCredentials'].includes(key)) state[key] = el.value;
   }
 });
 
@@ -1193,7 +1257,8 @@ view.addEventListener('change', (event) => {
   const key = el.dataset.bind;
   if (!key) return;
 
-  if (key === 'xlat' || key === 'attach' || key === 'webClip') {
+  if (key !== 'deviceModel') markCustomSettings();
+  if (['xlat', 'attach', 'webClip', 'omitCredentials'].includes(key)) {
     state[key] = el.checked;
     return;
   }
@@ -1205,14 +1270,38 @@ view.addEventListener('change', (event) => {
 });
 
 document.addEventListener('toggle', (event) => {
-  if (event.target.classList && event.target.classList.contains('adv')) {
+  if (event.target.classList && event.target.classList.contains('adv') && !event.target.classList.contains('diagnostics')) {
     state.advanced = event.target.open;
   }
 }, true);
 
+function markCustomSettings() {
+  state.preset = '';
+  for (const button of view.querySelectorAll('[data-act="reference"], [data-act="simple"]')) button.setAttribute('aria-pressed', 'false');
+  const note = view.querySelector('.reference-presets .hint');
+  if (note) note.textContent = note.textContent.replace('حالت نمونه فعال است. ', '').replace('ساختار ساده فعال است. ', '');
+}
+
 sheet.addEventListener('click', (event) => {
   if (event.target.closest('[data-close]')) closeSheet();
+  const action = event.target.closest('[data-act]')?.dataset.act;
+  if (action === 'report-up' || action === 'report-fail') {
+    recordOutcome(action === 'report-up' ? 'up' : 'fail');
+    toast('نتیجهٔ نصب ثبت شد');
+    closeSheet();
+  }
 });
+
+async function copyReport() {
+  const report = testReport();
+  try {
+    if (!navigator.clipboard) throw new Error('clipboard unavailable');
+    await navigator.clipboard.writeText(report);
+    toast('گزارش کپی شد');
+  } catch {
+    openSheet('گزارش تست، برای کپی انتخاب کنید', `<pre class="report-text" dir="rtl">${esc(report)}</pre>`);
+  }
+}
 
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && !sheet.hidden) {
@@ -1230,7 +1319,7 @@ function applyTheme(theme) {
 document.getElementById('themeBtn').addEventListener('click', () => {
   const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
   applyTheme(next);
-  localStorage.setItem(THEME_KEY, next);
+  try { localStorage.setItem(THEME_KEY, next); } catch { /* theme still works in memory */ }
 });
 
 document.getElementById('statusBtn').addEventListener('click', async () => {
@@ -1262,7 +1351,8 @@ document.getElementById('statusBtn').addEventListener('click', async () => {
 /* ---------- boot ---------- */
 
 (function boot() {
-  const savedTheme = localStorage.getItem(THEME_KEY);
+  let savedTheme;
+  try { savedTheme = localStorage.getItem(THEME_KEY); } catch { /* storage may be disabled */ }
   if (savedTheme) applyTheme(savedTheme);
 
   const forcedTheme = new URLSearchParams(location.search).get('theme');
@@ -1274,19 +1364,21 @@ document.getElementById('statusBtn').addEventListener('click', async () => {
   if (['guide', 'history', 'about'].includes(hash)) state.tab = hash;
 
   const major = detectIosMajor();
-  if (major && major < 16) state.format = 'legacy';
+  if (major && !state.preset) state.format = formatForIos(major);
+  restoreSettings(state.history[0]);
 
   render();
 
   // #recover is the Shortcuts target: reopen the app and mint a fresh profile for the last operator
   if (hash === 'recover' && state.history.length) {
     state.operatorId = state.history[0].operatorId;
+    restoreSettings(state.history[0]);
     renderBuild();
     setTimeout(handleBuild, 80);
   }
 
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).catch(() => {});
+    navigator.serviceWorker.register(new URL('./sw.js', location.href), { updateViaCache: 'none' }).catch(() => {});
   }
 
   startWatch();

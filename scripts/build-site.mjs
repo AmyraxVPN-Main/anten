@@ -25,7 +25,7 @@ function copyDir(from, to, skip = () => false) {
   }
 }
 
-copyDir(PUBLIC, OUT, (name) => name === 'sw.js');
+copyDir(PUBLIC, OUT);
 
 // shared sources ride along so the browser can import the real builder instead of a copy
 copyDir(SHARED, path.join(OUT, 'shared'));
@@ -35,10 +35,11 @@ let html = fs.readFileSync(indexFile, 'utf8');
 
 const appHash = createHash('sha1').update(fs.readFileSync(path.join(PUBLIC, 'app.js'))).digest('hex').slice(0, 8);
 const cssHash = createHash('sha1').update(fs.readFileSync(path.join(PUBLIC, 'styles.css'))).digest('hex').slice(0, 8);
+const buildHash = createHash('sha256').update(appHash + cssHash + fs.readFileSync(path.join(PUBLIC, 'sw.js')) + fs.readdirSync(SHARED).sort().map((file) => fs.readFileSync(path.join(SHARED, file))).join('')).digest('hex').slice(0, 12);
 
 html = html
   .replaceAll('/styles.css?v=__BUILD__', `./styles.css?v=${cssHash}`)
-  .replaceAll('/app.js?v=__BUILD__', `./app.js?v=${appHash}`)
+  .replaceAll('/app.js?v=__BUILD__', `./app.js?v=${buildHash}`)
   .replaceAll('href="/icon.svg"', 'href="./icon.svg"')
   .replaceAll('href="/icon-512.png"', 'href="./icon-512.png"')
   .replaceAll('href="/fonts/Vazirmatn.woff2"', 'href="./fonts/Vazirmatn.woff2"')
@@ -53,14 +54,11 @@ fs.writeFileSync(indexFile, html, 'utf8');
 const appFile = path.join(OUT, 'app.js');
 let app = fs.readFileSync(appFile, 'utf8');
 app = app
-  .replaceAll("from '/shared/profile.js?v=__BUILD__'", "from './shared/profile.js'")
-  .replaceAll("from '/shared/catalog.js?v=__BUILD__'", "from './shared/catalog.js'")
-  // no service worker on a project page: its scope would sit above the repo path
-  .replace(
-    /if \('serviceWorker' in navigator\) \{[\s\S]*?\n  \}/,
-    '// service worker omitted in the static build'
-  );
+  .replaceAll("from '/shared/profile.js?v=__BUILD__'", `from './shared/profile.js?v=${buildHash}'`)
+  .replaceAll("from '/shared/catalog.js?v=__BUILD__'", `from './shared/catalog.js?v=${buildHash}'`);
 fs.writeFileSync(appFile, app, 'utf8');
+const workerFile = path.join(OUT, 'sw.js');
+fs.writeFileSync(workerFile, fs.readFileSync(workerFile, 'utf8').replace("'ir-v11'", `'ir-static-${buildHash}'`));
 
 // relative manifest so the app installs from any repository path
 const manifestFile = path.join(OUT, 'manifest.webmanifest');

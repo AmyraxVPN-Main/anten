@@ -2,23 +2,20 @@
    shell (html/css/js) is network-first so a deploy lands on the next load;
    images and fonts are cache-first. bump VERSION when the shell contract changes. */
 
-const VERSION = 'ir-v10';
+const VERSION = 'ir-v11';
+const BASE = new URL('./', self.location.href);
+const CACHE_PREFIX = `ir:${BASE.pathname}:`;
+const CACHE_NAME = `${CACHE_PREFIX}${VERSION}`;
+const cached = (request, options) => caches.open(CACHE_NAME).then((cache) => cache.match(request, options));
 const SHELL = [
-  '/',
-  '/styles.css',
-  '/app.js',
-  '/manifest.webmanifest',
-  '/icon.svg',
-  '/icon-512.png',
-  '/fonts/Vazirmatn.woff2',
-  '/shared/profile.js',
-  '/shared/catalog.js'
-];
+  './', 'styles.css', 'app.js', 'manifest.webmanifest', 'icon.svg', 'icon-512.png',
+  'fonts/Vazirmatn.woff2', 'shared/profile.js', 'shared/catalog.js', 'shared/apn-sources.js'
+].map((file) => new URL(file, BASE).href);
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches
-      .open(VERSION)
+      .open(CACHE_NAME)
       .then((cache) => Promise.all(SHELL.map((url) => cache.add(url).catch(() => undefined))))
       .then(() => self.skipWaiting())
   );
@@ -28,7 +25,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k.startsWith(CACHE_PREFIX) && k !== CACHE_NAME).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
@@ -38,9 +35,9 @@ self.addEventListener('message', (event) => {
 });
 
 const isShell = (url) =>
-  url.pathname === '/' ||
+  url.pathname === BASE.pathname ||
   /\.(css|js|webmanifest)$/.test(url.pathname) ||
-  url.pathname === '/index.html';
+  url.pathname === new URL('index.html', BASE).pathname;
 
 self.addEventListener('fetch', (event) => {
   const { request } = event;
@@ -50,17 +47,18 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== location.origin) return;
 
   // profile downloads and profile API must always hit the network
-  if (url.pathname.startsWith('/p/') || url.pathname.startsWith('/api/profile')) return;
+  if (url.pathname.startsWith('/p/') || url.pathname.startsWith('/api/profile') || url.pathname.startsWith('/mdm/')) return;
 
   if (url.pathname.startsWith('/api/')) {
+    if (url.pathname !== '/api/catalog') return;
     event.respondWith(
       fetch(request)
         .then((response) => {
           const copy = response.clone();
-          caches.open(VERSION).then((cache) => cache.put(request, copy)).catch(() => {});
+          if (response.ok) caches.open(CACHE_NAME).then((cache) => cache.put(request, copy)).catch(() => {});
           return response;
         })
-        .catch(() => caches.match(request))
+        .catch(() => cached(request))
     );
     return;
   }
@@ -70,21 +68,21 @@ self.addEventListener('fetch', (event) => {
       fetch(request)
         .then((response) => {
           const copy = response.clone();
-          caches.open(VERSION).then((cache) => cache.put(request, copy)).catch(() => {});
+          if (response.ok) caches.open(CACHE_NAME).then((cache) => cache.put(request, copy)).catch(() => {});
           return response;
         })
-        .catch(() => caches.match(request).then((cached) => cached || caches.match('/')))
+        .catch(() => cached(request, { ignoreSearch: true }).then((hit) => hit || (request.mode === 'navigate' ? cached(BASE.href) : Response.error())))
     );
     return;
   }
 
   event.respondWith(
-    caches.match(request).then(
-      (cached) =>
-        cached ||
+    cached(request, { ignoreSearch: true }).then(
+      (hit) =>
+        hit ||
         fetch(request).then((response) => {
           const copy = response.clone();
-          caches.open(VERSION).then((cache) => cache.put(request, copy)).catch(() => {});
+          if (response.ok) caches.open(CACHE_NAME).then((cache) => cache.put(request, copy)).catch(() => {});
           return response;
         })
     )

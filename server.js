@@ -151,7 +151,7 @@ function parseCookies(header = '') {
     if (idx < 0) continue;
     const key = part.slice(0, idx).trim();
     if (!key) continue;
-    out[key] = decodeURIComponent(part.slice(idx + 1).trim());
+    try { out[key] = decodeURIComponent(part.slice(idx + 1).trim()); } catch { /* ignore malformed cookies */ }
   }
   return out;
 }
@@ -197,7 +197,8 @@ function apiHealth(req, res) {
   return json(res, 200, {
     ok: st.ok,
     service: 'iregister',
-    version: '1.0.0',
+    version: '1.1.0',
+    mdm: { available: false, reason: 'experimental implementation disabled' },
     uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
     operators: st.operators,
     signing: signingAvailable(),
@@ -221,10 +222,10 @@ function apiCatalog(req, res) {
 }
 
 async function apiCreateProfile(req, res) {
-  console.log('PROFILE POST', Date.now());
   if (rateLimited(req)) return json(res, 429, { error: 'تعداد درخواست‌ها زیاد است؛ چند دقیقه بعد تلاش کنید.' });
 
   const body = await readBody(req);
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return json(res, 400, { error: 'تنظیمات پروفایل نامعتبر است.' });
 
   // reject nonsense before touching the builder so the error is specific
   if (body.operatorId === 'custom' && !(Array.isArray(body.customEntries) && body.customEntries.some((e) => e?.apn))) {
@@ -540,6 +541,11 @@ const server = http.createServer(async (req, res) => {
   const method = req.method || 'GET';
 
   try {
+    for (const [key, value] of Object.entries(SECURITY_HEADERS)) res.setHeader(key, value);
+    // Enrollment is unavailable until real-device protocol and identity validation are implemented.
+    if (url.pathname === '/mdm' || url.pathname.startsWith('/mdm/')) {
+      return json(res, 503, { error: 'نگهبان ابری آزمایشی است و در این نسخه غیرفعال شده است.' });
+    }
     if (url.pathname === '/api/health') return apiHealth(req, res);
     if (url.pathname === '/api/ping') return apiPing(req, res);
     if (url.pathname === '/api/catalog') return apiCatalog(req, res);

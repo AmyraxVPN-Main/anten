@@ -106,7 +106,7 @@ const title = await evaluate(`document.getElementById('sheetTitle').textContent`
 check('build opens the install sheet', (await evaluate(`document.getElementById('sheet').hidden === false`)) === true, title);
 check('a file was produced', (await evaluate('window.__blobs')) >= 1);
 const fileText = await evaluate(`window.__lastBlob ? window.__lastBlob.text() : ''`);
-check('file is a cellular profile', /com\.apple\.cellular/.test(fileText) && /<key>APN</.test(fileText));
+check('file is a cellular profile', /com\.apple\.cellular/.test(fileText) && /<key>APNs</.test(fileText));
 check('history recorded the build', (await evaluate(`(JSON.parse(localStorage.getItem('ir.history.v1')) || []).length`)) >= 1);
 
 // the credit lives on the about tab, so the tab has to be opened before asserting it

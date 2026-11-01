@@ -133,9 +133,9 @@ await evaluate(`document.getElementById('themeBtn').click()`);
 await sleep(150);
 
 /* 4. advanced panel */
-await evaluate(`document.querySelector('.adv summary').click()`);
+await evaluate(`document.querySelector('.adv:not(.diagnostics) summary').click()`);
 await sleep(200);
-check('advanced opens', (await evaluate(`document.querySelector('.adv').open`)) === true);
+check('advanced opens', (await evaluate(`document.querySelector('.adv:not(.diagnostics)').open`)) === true);
 check('advanced fields', (await evaluate(`document.querySelectorAll('.adv-body input, .adv-body select').length`)) >= 6);
 
 /* 4b. custom listbox: must stay inside the app surface, never an OS menu */
@@ -169,6 +169,7 @@ await evaluate(`document.querySelector('[data-sel="protocol"] .sel-btn').focus()
 await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))`);
 await sleep(200);
 check('keyboard opens menu', (await evaluate(`document.querySelector('[data-sel="protocol"] .sel-menu').hidden`)) === false);
+await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))`);
 await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))`);
 await sleep(120);
 await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))`);
@@ -305,11 +306,13 @@ check('history shows the new entry age', (await evaluate(`/همین حالا|د�
 {
   const seeded = await evaluate(`(() => {
     window.__ir.state.history.unshift({ id: 'seed', operatorId: 'mci', format: 'universal', createdAt: Date.now() - 14 * 60000 });
-    window.__ir.recordDrop('mci');
+    window.__ir.state.activeProfileId = 'seed';
     window.__ir.recordOutcome('up');
+    window.__ir.state.drops[0].at = Date.now() - 14 * 60000;
+    window.__ir.recordDrop('mci');
     return window.__ir.dropStats();
   })()`);
-  check('drop is recorded with its uptime', seeded && seeded.today === 1, JSON.stringify(seeded));
+  check('drop is timed from the reported return', seeded && seeded.last.uptime >= 14 * 60000 && seeded.last.uptime < 15 * 60000, JSON.stringify(seeded));
   check('install outcome is recorded', seeded && seeded.ups === 1, JSON.stringify(seeded));
   const report = await evaluate(`window.__ir.testReport()`);
   check('report carries operator and uptime', /اپراتور: mci/.test(report) && /۱۴ دقیقه/.test(report), report.split('\n')[3]);
@@ -337,8 +340,16 @@ await evaluate(`document.querySelector('[data-act="toggle-guard"]').click()`);
 await sleep(250);
 check('guard switch turns off and drops the ready file', (await evaluate(`document.querySelector('[data-act="install-ready"]') === null`)) === true);
 const cloud = await evaluate(`(() => { const a = document.querySelector('[data-guard-link]'); return a ? { href: a.getAttribute('href'), h: Math.round(a.getBoundingClientRect().height) } : null; })()`);
-check('cloud guard link targets enrollment for the operator', cloud !== null && /^\/mdm\/enroll\?op=/.test(cloud.href), JSON.stringify(cloud));
-check('cloud guard link is a 44px target', cloud !== null && cloud.h >= 44, JSON.stringify(cloud));
+check('unverified cloud enrollment is not offered', cloud === null);
+
+/* Diagnostics changes one field, preserves APN choices and does not download prematurely. */
+await evaluate(`document.querySelector('.diagnostics').open = true; document.querySelector('[data-act="symptom"][data-value="service"]').click()`);
+check('no service guidance explains the network boundary', (await evaluate(`document.querySelector('.diagnostic-advice').textContent.includes('IMEI')`)) === true);
+const beforeTrial = await evaluate(`window.__ir.state.history.length`);
+await evaluate(`document.querySelector('[data-act="trial"][data-value="ipv4"]').click()`);
+check('IPv4 trial changes protocol without building', (await evaluate(`window.__ir.state.protocol === 'ipv4' && window.__ir.state.history.length === ${beforeTrial}`)) === true);
+await evaluate(`document.querySelector('[data-act="trial"][data-value="no-attach"]').click()`);
+check('attach trial preserves protocol', (await evaluate(`window.__ir.state.attach === false && window.__ir.state.protocol === 'ipv4'`)) === true);
 
 /* 11. link watchdog: three failed probes surface the recovery banner */await evaluate(`window.__realFetch2 = window.fetch; window.fetch = () => Promise.reject(new Error('down'));`);
 await evaluate(`(async () => { await window.__ir.pingNow(); await window.__ir.pingNow(); await window.__ir.pingNow(); })()`);

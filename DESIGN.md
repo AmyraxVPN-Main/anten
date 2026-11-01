@@ -1,5 +1,16 @@
 # Direction: آنتن (iRegister)
 
+## Revision 1.1: connection diagnostics
+
+- A compact preset section offers the two inspected reference configurations and a simple carrier preset; using existing wrapping controls keeps their provenance distinct from real-SIM verification.
+
+- Diagnostics is a collapsed section beside advanced settings so the first action stays visible and troubleshooting remains optional.
+- Three symptom choices use wrapping 44px controls so Persian copy fits a narrow phone without horizontal scrolling.
+- Trial controls change one setting at a time and require a separate build action so field results can be compared.
+- Results are tied to a profile and described as user reports because the browser cannot read the modem or confirm installation.
+- Cloud enrollment is absent while the protocol implementation is unverified; the guide states its availability directly.
+- The existing glass tokens, Vazirmatn and reduced-motion rules remain the visual language in both themes.
+
 Second revision. The first pass stripped the interface to flat surfaces under the anti-slop rules;
 this pass adds a lit glass material on top of that skeleton, because the product is about signal and
 a pane that catches light is a better metaphor than a flat card. Every line below is the one-line

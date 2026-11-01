@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>ConsentText</key>
+	<dict>
+		<key>default</key>
+		<string>این پروفایل تنظیمات شبکه سلولی را روی دستگاه اعمال می‌کند. فقط روی همان گوشی نصب شود که برای آن ساخته شده است.</string>
+	</dict>
+	<key>PayloadContent</key>
+	<array>
+		<dict>
+			<key>PayloadDisplayName</key>
+			<string>Cellular</string>
+			<key>PayloadIdentifier</key>
+			<string>com.apple.cellular.205728A6-CE65-4185-8A3E-E5FC2BCFBC05</string>
+			<key>PayloadType</key>
+			<string>com.apple.cellular</string>
+			<key>PayloadUUID</key>
+			<string>205728a6-ce65-4185-8a3e-e5fc2bcfbc05</string>
+			<key>PayloadVersion</key>
+			<integer>1</integer>
+			<key>APNs</key>
+			<array>
+				<dict>
+					<key>AllowedProtocolMask</key>
+					<integer>1</integer>
+					<key>AllowedProtocolMaskInDomesticRoaming</key>
+					<integer>1</integer>
+					<key>AllowedProtocolMaskInRoaming</key>
+					<integer>1</integer>
+					<key>AuthenticationType</key>
+					<string>PAP</string>
+					<key>Name</key>
+					<string>mtnirancell</string>
+					<key>EnableXLAT464</key>
+					<false/>
+				</dict>
+			</array>
+			<key>AttachAPN</key>
+			<dict>
+				<key>AllowedProtocolMask</key>
+				<integer>1</integer>
+				<key>AuthenticationType</key>
+				<string>PAP</string>
+				<key>Name</key>
+				<string>mtnirancell</string>
+			</dict>
+		</dict>
+	</array>
+	<key>PayloadDescription</key>
+	<string>آنتن، ایرانسل · mtnirancell</string>
+	<key>PayloadDisplayName</key>
+	<string>آنتن</string>
+	<key>PayloadIdentifier</key>
+	<string>ir.iregister.profile.6591CE53-EAB8-4D5F-9187-9F8E3B07E66C</string>
+	<key>PayloadOrganization</key>
+	<string>AmyraxVPN</string>
+	<key>PayloadRemovalDisallowed</key>
+	<false/>
+	<key>PayloadType</key>
+	<string>Configuration</string>
+	<key>PayloadUUID</key>
+	<string>6591ce53-eab8-4d5f-9187-9f8e3b07e66c</string>
+	<key>PayloadVersion</key>
+	<integer>1</integer>
+</dict>
+</plist>
