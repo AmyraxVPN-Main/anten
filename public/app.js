@@ -748,13 +748,13 @@ function renderBuild() {
     ${sourcesNote}
     ${iosNote}
     <section class="block reference-presets">
-      <h2 class="block-title">ساختار ساده و نمونه‌های بررسی‌شده</h2>
+      <h2 class="block-title">تنظیمات سریع اپراتور</h2>
       <div class="diagnostic-choices">
-        <button class="mini-btn" type="button" data-act="reference" data-value="mci" aria-pressed="${state.preset === 'reference' && state.operatorId === 'mci'}">همراه اول، مطابق نمونه</button>
-        <button class="mini-btn" type="button" data-act="reference" data-value="irancell" aria-pressed="${state.preset === 'reference' && state.operatorId === 'irancell'}">ایرانسل، مطابق نمونه</button>
+        <button class="mini-btn" type="button" data-act="reference" data-value="mci" aria-pressed="${state.preset === 'reference' && state.operatorId === 'mci'}">همراه اول</button>
+        <button class="mini-btn" type="button" data-act="reference" data-value="irancell" aria-pressed="${state.preset === 'reference' && state.operatorId === 'irancell'}">ایرانسل</button>
         <button class="mini-btn" type="button" data-act="simple" aria-pressed="${state.preset === 'simple'}">ساختار ساده برای اپراتور انتخاب‌شده</button>
       </div>
-      <p class="hint">${state.preset === 'reference' ? 'حالت نمونه فعال است. ' : state.preset === 'simple' ? 'ساختار ساده فعال است. ' : ''}نمونه‌های همراه اول و ایرانسل با تنظیمات فایل ارائه‌شده یکسان‌اند. بقیهٔ اپراتورها از APN خودشان در همین ساختار استفاده می‌کنند و به تست واقعی نیاز دارند. UUID و نام سازنده جدید است؛ امضای فروشنده کپی نمی‌شود.</p>
+      <p class="hint">اپراتور را انتخاب کنید، سپس روی «ساخت پروفایل» بزنید.</p>
     </section>
     ${diagnosticsHtml()}
     <details class="adv" ${state.advanced ? 'open' : ''}>
@@ -1090,7 +1090,7 @@ view.addEventListener('click', (event) => {
     if (kind === 'reference') {
       Object.assign(state, referenceOptions(act.dataset.value));
       renderBuild();
-      toast('تنظیمات نمونه اعمال شد؛ اکنون پروفایل بسازید');
+      toast('تنظیمات اپراتور اعمال شد؛ اکنون پروفایل بسازید');
       return;
     }
     if (kind === 'symptom') {
@@ -1278,8 +1278,6 @@ document.addEventListener('toggle', (event) => {
 function markCustomSettings() {
   state.preset = '';
   for (const button of view.querySelectorAll('[data-act="reference"], [data-act="simple"]')) button.setAttribute('aria-pressed', 'false');
-  const note = view.querySelector('.reference-presets .hint');
-  if (note) note.textContent = note.textContent.replace('حالت نمونه فعال است. ', '').replace('ساختار ساده فعال است. ', '');
 }
 
 sheet.addEventListener('click', (event) => {
